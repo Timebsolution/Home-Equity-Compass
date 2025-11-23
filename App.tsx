@@ -25,7 +25,7 @@ function App() {
   const [globalRent, setGlobalRent] = useState<number>(DEFAULT_GLOBAL_RENT);
   const [useGlobalRent, setUseGlobalRent] = useState<boolean>(true);
 
-  // --- Header Visibility ---
+  // --- Header Visibility State (Collapsible) ---
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
 
   // --- Projection Settings ---
