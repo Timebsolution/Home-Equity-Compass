@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { PlusCircle, Calculator, Sparkles, Clock, TrendingUp, Sun, Moon, Monitor, Wallet, PiggyBank, Calendar, RefreshCcw, Link } from 'lucide-react';
+import { PlusCircle, Calculator, Sparkles, Clock, TrendingUp, Sun, Moon, Monitor, Wallet, PiggyBank, Calendar, RefreshCcw, Link, ChevronUp, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { LoanScenario, CalculatedLoan, AnalysisStatus } from './types';
 import { calculateLoan, generateId, COLORS, formatCurrency } from './utils/calculations';
@@ -26,6 +25,9 @@ function App() {
   const [globalRent, setGlobalRent] = useState<number>(DEFAULT_GLOBAL_RENT);
   const [useGlobalRent, setUseGlobalRent] = useState<boolean>(true);
 
+  // --- Header Visibility ---
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
+
   // --- Projection Settings ---
   const [horizonMode, setHorizonMode] = useState<'years' | 'months'>('years');
   const [horizonValue, setHorizonValue] = useState<number>(10);
@@ -42,7 +44,7 @@ function App() {
   
   // Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importTargetId, setImportTargetId] = useState<string | null>(null); // If null, create new. If set, update existing.
+  const [importTargetId, setImportTargetId] = useState<string | null>(null); 
   
   // --- Scenarios ---
   const [scenarios, setScenarios] = useState<LoanScenario[]>([
@@ -171,8 +173,6 @@ function App() {
   useEffect(() => {
     setScenarios(prev => prev.map(s => {
         let updates: Partial<LoanScenario> = {};
-        // Only update if NOT locked. 
-        // Note: updateScenario (below) handles the reverse sync (Card -> Global)
         if (!s.lockFMV && !s.isRentOnly && !s.isInvestmentOnly) updates.homeValue = globalFMV;
         if (!s.lockLoan && !s.isRentOnly && !s.isInvestmentOnly) updates.loanAmount = globalLoan;
         if (useGlobalRent && !s.lockRent) updates.rentMonthly = globalRent;
@@ -209,8 +209,6 @@ function App() {
 
   const updateScenario = (id: string, updates: Partial<LoanScenario>) => {
     // BI-DIRECTIONAL SYNC LOGIC
-    // If a user updates a field on a card that is currently LINKED to global (unlocked),
-    // we update the Global value, which then updates ALL other linked cards.
     const scenario = scenarios.find(s => s.id === id);
     if (scenario) {
         if (updates.homeValue !== undefined && !scenario.lockFMV && !scenario.isRentOnly && !scenario.isInvestmentOnly) {
@@ -255,19 +253,14 @@ function App() {
     if (!extracted) throw new Error("Failed to extract");
 
     if (importTargetId) {
-        // UPDATE EXISTING SCENARIO
         updateScenario(importTargetId, {
             ...extracted,
-            // We automatically lock these because they are now specific to a property
             lockFMV: true, 
             lockLoan: true,
-            // If we extracted a price, update loan to 80% of that price as a reasonable default, 
-            // OR keep existing if logical. Let's reset to standard 80% LTV for the new property.
             loanAmount: extracted.homeValue ? extracted.homeValue * 0.8 : 0,
             downPayment: extracted.homeValue ? extracted.homeValue * 0.2 : 0,
         });
     } else {
-        // CREATE NEW SCENARIO
         if (scenarios.length >= 10) return;
         
         const newId = generateId();
@@ -365,10 +358,18 @@ function App() {
       {/* HEADER */}
       <header className={`border-b sticky top-0 z-30 transition-colors duration-300 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-gray-900/90 border-gray-700 backdrop-blur-md'}`}>
         <div className="max-w-7xl mx-auto px-4 py-4">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
                 <div className="flex items-center gap-2">
                     <div className="bg-brand-600 text-white p-2 rounded-lg shadow-lg shadow-brand-500/30"><Calculator size={20} /></div>
                     <h1 className="text-xl font-bold tracking-tight">Home Equity Compass</h1>
+                    
+                    {/* Mobile Toggle Button */}
+                    <button 
+                      onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}
+                      className={`ml-2 p-1.5 rounded-full transition-colors ${theme === 'light' ? 'hover:bg-gray-100 text-gray-500' : 'hover:bg-gray-700 text-gray-400'}`}
+                    >
+                      {isHeaderExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </button>
                 </div>
 
                 {/* Theme Switcher */}
@@ -385,233 +386,238 @@ function App() {
                 </div>
             </div>
 
-            {/* Global Sliders with INPUTS */}
-            <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 p-5 rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-700'}`}>
-                {/* FMV */}
-                <div>
-                    <div className="flex justify-between mb-2">
-                        <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global FMV</label>
-                        <div className="relative w-24">
-                            <span className="absolute left-2 top-1 text-xs text-gray-400">$</span>
-                            <input 
-                                type="number" 
-                                value={globalFMV} 
-                                onChange={e => setGlobalFMV(Number(e.target.value))}
-                                className={`w-full pl-4 py-0.5 text-xs border rounded text-right ${inputClass}`}
-                            />
-                        </div>
-                    </div>
-                    <input type="range" min="100000" max="2000000" step="5000" value={globalFMV} onChange={e => setGlobalFMV(Number(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" />
-                </div>
-                {/* Loan */}
-                <div>
-                    <div className="flex justify-between mb-2">
-                        <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global Loan</label>
-                        <div className="relative w-24">
-                            <span className="absolute left-2 top-1 text-xs text-gray-400">$</span>
-                            <input 
-                                type="number" 
-                                value={globalLoan} 
-                                onChange={e => setGlobalLoan(Number(e.target.value))}
-                                className={`w-full pl-4 py-0.5 text-xs border rounded text-right ${inputClass}`}
-                            />
-                        </div>
-                    </div>
-                    <input type="range" min="50000" max="1500000" step="5000" value={globalLoan} onChange={e => setGlobalLoan(Number(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" />
-                </div>
-                {/* Rent */}
-                <div>
-                    <div className="flex justify-between mb-2 items-center">
-                        <div className="flex items-center gap-2">
-                             <input type="checkbox" checked={useGlobalRent} onChange={e => setUseGlobalRent(e.target.checked)} className="rounded text-brand-600 focus:ring-brand-500" />
-                             <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global Rent</label>
-                        </div>
-                        <div className="relative w-24">
-                            <span className="absolute left-2 top-1 text-xs text-gray-400">$</span>
-                            <input 
-                                type="number" 
-                                value={globalRent} 
-                                onChange={e => setGlobalRent(Number(e.target.value))}
-                                disabled={!useGlobalRent}
-                                className={`w-full pl-4 py-0.5 text-xs border rounded text-right ${!useGlobalRent ? 'opacity-50' : ''} ${inputClass}`}
-                            />
-                        </div>
-                    </div>
-                    <input type="range" min="500" max="10000" step="50" value={globalRent} onChange={e => setGlobalRent(Number(e.target.value))} disabled={!useGlobalRent} className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer ${useGlobalRent ? 'bg-gray-300 accent-brand-600 dark:bg-gray-600' : 'bg-gray-200 dark:bg-gray-800'}`} />
-                </div>
-            </div>
-
-            {/* Investment Calculator */}
-            <div className={`mt-4 pt-4 border-t ${borderClass}`}>
-                <div className={`mb-4 p-5 rounded-lg ${theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-900/10'}`}>
-                    <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center gap-2">
-                             <PiggyBank size={18} className="text-blue-600 dark:text-blue-400" />
-                             <span className={`text-sm font-bold uppercase ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>Compound interest investment calculator with replenishment</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                             <input type="checkbox" checked={modelSeparateInvestment} onChange={e => setModelSeparateInvestment(e.target.checked)} className="rounded" />
-                             <span>Active for all scenarios</span>
-                        </div>
-                    </div>
-
-                    {modelSeparateInvestment && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                         {/* LEFT COLUMN: INPUTS */}
-                         <div className="grid grid-cols-2 gap-4">
-                             <div>
-                                 <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Starting Capital</label>
-                                 <div className="relative">
-                                    <span className="absolute left-2 top-1.5 text-xs text-gray-400">$</span>
-                                    <input type="number" value={globalCashInvestment} onChange={e => setGlobalCashInvestment(Number(e.target.value))} className={`w-full pl-5 py-1.5 text-sm border rounded ${inputClass}`} />
-                                 </div>
-                             </div>
-                             <div>
-                                 <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Investment Term</label>
-                                 <div className="relative">
-                                    <input 
-                                      type="number" 
-                                      value={effectiveProjectionYears.toFixed(1)} 
-                                      readOnly
-                                      className={`w-full pr-8 py-1.5 text-sm border rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600 text-gray-500 dark:text-gray-400`} 
-                                    />
-                                    <span className="absolute right-2 top-1.5 text-xs text-gray-400">yrs</span>
-                                 </div>
-                             </div>
-                             <div>
-                                 <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Rate (% per annum)</label>
-                                 <div className="relative">
-                                    <input type="number" value={investmentReturnRate} onChange={e => setInvestmentReturnRate(Number(e.target.value))} className={`w-full pr-5 py-1.5 text-sm border rounded ${inputClass}`} />
-                                    <span className="absolute right-2 top-1.5 text-xs text-gray-400">%</span>
-                                 </div>
-                             </div>
-                             <div className="flex items-center mt-4">
-                                 <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                                     <input type="checkbox" checked readOnly className="rounded text-brand-600" />
-                                     Reinvest Income
-                                 </label>
-                             </div>
-                             <div>
-                                 <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Replenishment Amount</label>
-                                 <div className="relative">
-                                    <span className="absolute left-2 top-1.5 text-xs text-gray-400">$</span>
-                                    <input type="number" value={globalMonthlyContribution} onChange={e => setGlobalMonthlyContribution(Number(e.target.value))} className={`w-full pl-5 py-1.5 text-sm border rounded ${inputClass}`} />
-                                 </div>
-                             </div>
-                             <div>
-                                 <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Frequency</label>
-                                 <select disabled className={`w-full py-1.5 text-sm border rounded opacity-70 ${inputClass}`}>
-                                     <option>Once a month</option>
-                                 </select>
-                             </div>
-                         </div>
-
-                         {/* RIGHT COLUMN: RESULT */}
-                         <div className={`rounded-xl p-6 flex flex-col justify-center gap-4 ${theme === 'light' ? 'bg-white border border-gray-200' : 'bg-white/5 border border-gray-600'}`}>
-                             <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
-                                 <span className="text-xs uppercase font-bold text-gray-500">Your Goal (FV)</span>
-                                 <span className="text-2xl font-bold text-brand-600 dark:text-brand-400">{formatCurrency(calcInvestmentResult.fv)}</span>
-                             </div>
-                             <div className="flex justify-between items-center">
-                                 <span className="text-xs uppercase font-bold text-gray-500">Income (Interest)</span>
-                                 <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>+{formatCurrency(calcInvestmentResult.profit)}</span>
-                             </div>
-                             <div className="flex justify-between items-center">
-                                 <span className="text-xs uppercase font-bold text-gray-500">Starting Capital</span>
-                                 <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(globalCashInvestment)}</span>
-                             </div>
-                             <div className="flex justify-between items-center">
-                                 <span className="text-xs uppercase font-bold text-gray-500">Total Replenished</span>
-                                 <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(globalMonthlyContribution * 12 * effectiveProjectionYears)}</span>
-                             </div>
-                         </div>
-                    </div>
-                    )}
-                </div>
-
-                {/* Horizon & Appreciation Controls */}
-                <div className={`mt-6 pt-4 border-t ${borderClass} grid grid-cols-1 md:grid-cols-2 gap-8`}>
-                    
-                    {/* Time Horizon */}
+            {/* Collapsible Container */}
+            {isHeaderExpanded && (
+            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                {/* Global Sliders with INPUTS */}
+                <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 p-5 rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-700'}`}>
+                    {/* FMV */}
                     <div>
-                        <div className="flex justify-between items-center mb-3">
-                            <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Time Horizon</label>
-                            <div className="flex rounded-md shadow-sm border border-gray-300 dark:border-gray-600 overflow-hidden">
-                                <button 
-                                  onClick={() => setHorizonMode('years')} 
-                                  className={`px-3 py-1 text-xs font-medium transition-colors ${horizonMode === 'years' ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
-                                >
-                                  Years
-                                </button>
-                                <div className="w-px bg-gray-300 dark:bg-gray-600"></div>
-                                <button 
-                                  onClick={() => setHorizonMode('months')} 
-                                  className={`px-3 py-1 text-xs font-medium transition-colors ${horizonMode === 'months' ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
-                                >
-                                  Months
-                                </button>
+                        <div className="flex justify-between mb-2">
+                            <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global FMV</label>
+                            <div className="relative w-24">
+                                <span className="absolute left-2 top-1 text-xs text-gray-400">$</span>
+                                <input 
+                                    type="number" 
+                                    value={globalFMV} 
+                                    onChange={e => setGlobalFMV(Number(e.target.value))}
+                                    className={`w-full pl-4 py-0.5 text-xs border rounded text-right ${inputClass}`}
+                                />
                             </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                             <input 
-                               type="range" 
-                               min={1} 
-                               max={horizonMode === 'years' ? 30 : 360} 
-                               step={1} 
-                               value={horizonValue} 
-                               onChange={e => setHorizonValue(Number(e.target.value))} 
-                               className="flex-1 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:bg-gray-600" 
-                             />
-                             <span className={`text-lg font-bold w-24 text-right ${theme === 'light' ? 'text-gray-800' : 'text-white'}`}>
-                                {horizonValue} <span className="text-sm font-normal text-gray-500">{horizonMode}</span>
-                             </span>
-                        </div>
+                        <input type="range" min="100000" max="2000000" step="5000" value={globalFMV} onChange={e => setGlobalFMV(Number(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" />
                     </div>
-
-                    {/* Home Appreciation */}
+                    {/* Loan */}
                     <div>
-                        <div className="flex justify-between items-center mb-3">
-                            <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Home Appreciation Rate</label>
-                            <div className="flex rounded-md shadow-sm border border-gray-300 dark:border-gray-600 overflow-hidden">
-                                <button 
-                                  onClick={() => setGrowthEnabled(false)} 
-                                  className={`px-3 py-1 text-xs font-medium transition-colors ${!growthEnabled ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
-                                >
-                                  Off
-                                </button>
-                                <div className="w-px bg-gray-300 dark:bg-gray-600"></div>
-                                <button 
-                                  onClick={() => setGrowthEnabled(true)} 
-                                  className={`px-3 py-1 text-xs font-medium transition-colors ${growthEnabled ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
-                                >
-                                  ON
-                                </button>
+                        <div className="flex justify-between mb-2">
+                            <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global Loan</label>
+                            <div className="relative w-24">
+                                <span className="absolute left-2 top-1 text-xs text-gray-400">$</span>
+                                <input 
+                                    type="number" 
+                                    value={globalLoan} 
+                                    onChange={e => setGlobalLoan(Number(e.target.value))}
+                                    className={`w-full pl-4 py-0.5 text-xs border rounded text-right ${inputClass}`}
+                                />
                             </div>
                         </div>
-                        
-                        <div className="flex items-center gap-4">
-                            <div className={`flex items-center gap-2 flex-1 ${!growthEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
-                                <span className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>Annual rate:</span>
-                                <div className="relative w-24">
-                                    <input 
+                        <input type="range" min="50000" max="1500000" step="5000" value={globalLoan} onChange={e => setGlobalLoan(Number(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" />
+                    </div>
+                    {/* Rent */}
+                    <div>
+                        <div className="flex justify-between mb-2 items-center">
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" checked={useGlobalRent} onChange={e => setUseGlobalRent(e.target.checked)} className="rounded text-brand-600 focus:ring-brand-500" />
+                                <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global Rent</label>
+                            </div>
+                            <div className="relative w-24">
+                                <span className="absolute left-2 top-1 text-xs text-gray-400">$</span>
+                                <input 
+                                    type="number" 
+                                    value={globalRent} 
+                                    onChange={e => setGlobalRent(Number(e.target.value))}
+                                    disabled={!useGlobalRent}
+                                    className={`w-full pl-4 py-0.5 text-xs border rounded text-right ${!useGlobalRent ? 'opacity-50' : ''} ${inputClass}`}
+                                />
+                            </div>
+                        </div>
+                        <input type="range" min="500" max="10000" step="50" value={globalRent} onChange={e => setGlobalRent(Number(e.target.value))} disabled={!useGlobalRent} className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer ${useGlobalRent ? 'bg-gray-300 accent-brand-600 dark:bg-gray-600' : 'bg-gray-200 dark:bg-gray-800'}`} />
+                    </div>
+                </div>
+
+                {/* Investment Calculator */}
+                <div className={`mt-4 pt-4 border-t ${borderClass}`}>
+                    <div className={`mb-4 p-5 rounded-lg ${theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-900/10'}`}>
+                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center gap-2">
+                                <PiggyBank size={18} className="text-blue-600 dark:text-blue-400" />
+                                <span className={`text-sm font-bold uppercase ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>Compound interest investment calculator with replenishment</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                <input type="checkbox" checked={modelSeparateInvestment} onChange={e => setModelSeparateInvestment(e.target.checked)} className="rounded" />
+                                <span>Active for all scenarios</span>
+                            </div>
+                        </div>
+
+                        {modelSeparateInvestment && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* LEFT COLUMN: INPUTS */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Starting Capital</label>
+                                    <div className="relative">
+                                        <span className="absolute left-2 top-1.5 text-xs text-gray-400">$</span>
+                                        <input type="number" value={globalCashInvestment} onChange={e => setGlobalCashInvestment(Number(e.target.value))} className={`w-full pl-5 py-1.5 text-sm border rounded ${inputClass}`} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Investment Term</label>
+                                    <div className="relative">
+                                        <input 
                                         type="number" 
-                                        value={appreciationRate} 
-                                        onChange={e => setAppreciationRate(Number(e.target.value))} 
-                                        className={`w-full pr-6 py-1 text-sm border rounded text-right ${inputClass}`}
-                                    />
-                                    <span className="absolute right-2 top-1 text-xs text-gray-400">%</span>
+                                        value={effectiveProjectionYears.toFixed(1)} 
+                                        readOnly
+                                        className={`w-full pr-8 py-1.5 text-sm border rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600 text-gray-500 dark:text-gray-400`} 
+                                        />
+                                        <span className="absolute right-2 top-1.5 text-xs text-gray-400">yrs</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Rate (% per annum)</label>
+                                    <div className="relative">
+                                        <input type="number" value={investmentReturnRate} onChange={e => setInvestmentReturnRate(Number(e.target.value))} className={`w-full pr-5 py-1.5 text-sm border rounded ${inputClass}`} />
+                                        <span className="absolute right-2 top-1.5 text-xs text-gray-400">%</span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center mt-4">
+                                    <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                        <input type="checkbox" checked readOnly className="rounded text-brand-600" />
+                                        Reinvest Income
+                                    </label>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Replenishment Amount</label>
+                                    <div className="relative">
+                                        <span className="absolute left-2 top-1.5 text-xs text-gray-400">$</span>
+                                        <input type="number" value={globalMonthlyContribution} onChange={e => setGlobalMonthlyContribution(Number(e.target.value))} className={`w-full pl-5 py-1.5 text-sm border rounded ${inputClass}`} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Frequency</label>
+                                    <select disabled className={`w-full py-1.5 text-sm border rounded opacity-70 ${inputClass}`}>
+                                        <option>Once a month</option>
+                                    </select>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <span className={`text-lg font-bold ${growthEnabled ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
-                                    {growthEnabled ? `${appreciationRate}%` : '0%'}
+
+                            {/* RIGHT COLUMN: RESULT */}
+                            <div className={`rounded-xl p-6 flex flex-col justify-center gap-4 ${theme === 'light' ? 'bg-white border border-gray-200' : 'bg-white/5 border border-gray-600'}`}>
+                                <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                                    <span className="text-xs uppercase font-bold text-gray-500">Your Goal (FV)</span>
+                                    <span className="text-2xl font-bold text-brand-600 dark:text-brand-400">{formatCurrency(calcInvestmentResult.fv)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs uppercase font-bold text-gray-500">Income (Interest)</span>
+                                    <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>+{formatCurrency(calcInvestmentResult.profit)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs uppercase font-bold text-gray-500">Starting Capital</span>
+                                    <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(globalCashInvestment)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs uppercase font-bold text-gray-500">Total Replenished</span>
+                                    <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(globalMonthlyContribution * 12 * effectiveProjectionYears)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        )}
+                    </div>
+
+                    {/* Horizon & Appreciation Controls */}
+                    <div className={`mt-6 pt-4 border-t ${borderClass} grid grid-cols-1 md:grid-cols-2 gap-8`}>
+                        
+                        {/* Time Horizon */}
+                        <div>
+                            <div className="flex justify-between items-center mb-3">
+                                <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Time Horizon</label>
+                                <div className="flex rounded-md shadow-sm border border-gray-300 dark:border-gray-600 overflow-hidden">
+                                    <button 
+                                    onClick={() => setHorizonMode('years')} 
+                                    className={`px-3 py-1 text-xs font-medium transition-colors ${horizonMode === 'years' ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
+                                    >
+                                    Years
+                                    </button>
+                                    <div className="w-px bg-gray-300 dark:bg-gray-600"></div>
+                                    <button 
+                                    onClick={() => setHorizonMode('months')} 
+                                    className={`px-3 py-1 text-xs font-medium transition-colors ${horizonMode === 'months' ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
+                                    >
+                                    Months
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <input 
+                                type="range" 
+                                min={1} 
+                                max={horizonMode === 'years' ? 30 : 360} 
+                                step={1} 
+                                value={horizonValue} 
+                                onChange={e => setHorizonValue(Number(e.target.value))} 
+                                className="flex-1 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:bg-gray-600" 
+                                />
+                                <span className={`text-lg font-bold w-24 text-right ${theme === 'light' ? 'text-gray-800' : 'text-white'}`}>
+                                    {horizonValue} <span className="text-sm font-normal text-gray-500">{horizonMode}</span>
                                 </span>
                             </div>
                         </div>
-                    </div>
 
+                        {/* Home Appreciation */}
+                        <div>
+                            <div className="flex justify-between items-center mb-3">
+                                <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Home Appreciation Rate</label>
+                                <div className="flex rounded-md shadow-sm border border-gray-300 dark:border-gray-600 overflow-hidden">
+                                    <button 
+                                    onClick={() => setGrowthEnabled(false)} 
+                                    className={`px-3 py-1 text-xs font-medium transition-colors ${!growthEnabled ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
+                                    >
+                                    Off
+                                    </button>
+                                    <div className="w-px bg-gray-300 dark:bg-gray-600"></div>
+                                    <button 
+                                    onClick={() => setGrowthEnabled(true)} 
+                                    className={`px-3 py-1 text-xs font-medium transition-colors ${growthEnabled ? (theme === 'light' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white') : (theme === 'light' ? 'bg-white text-gray-500 hover:bg-gray-50' : 'bg-transparent text-gray-400 hover:bg-white/5')}`}
+                                    >
+                                    ON
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4">
+                                <div className={`flex items-center gap-2 flex-1 ${!growthEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                                    <span className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>Annual rate:</span>
+                                    <div className="relative w-24">
+                                        <input 
+                                            type="number" 
+                                            value={appreciationRate} 
+                                            onChange={e => setAppreciationRate(Number(e.target.value))} 
+                                            className={`w-full pr-6 py-1 text-sm border rounded text-right ${inputClass}`}
+                                        />
+                                        <span className="absolute right-2 top-1 text-xs text-gray-400">%</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <span className={`text-lg font-bold ${growthEnabled ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+                                        {growthEnabled ? `${appreciationRate}%` : '0%'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             </div>
+            )}
         </div>
       </header>
 
