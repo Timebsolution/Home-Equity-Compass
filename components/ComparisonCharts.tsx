@@ -10,7 +10,8 @@ import {
   Legend,
   ResponsiveContainer,
   LineChart,
-  Line
+  Line,
+  Label
 } from 'recharts';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
@@ -24,78 +25,95 @@ interface ComparisonChartsProps {
 
 export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, calculatedData, theme }) => {
   
-  // Data for Profit / Net Worth Stack
-  const profitData = scenarios.map(s => {
+  // Data for Asset Composition (Stacked Bar)
+  const compositionData = scenarios.map(s => {
       const c = calculatedData.find(cd => cd.id === s.id);
+      if (!c) return { name: s.name };
       
-      let houseEquity = 0;
-      let returnedCapital = 0;
-      let investmentPortfolio = 0;
+      // 1. Initial Capital (Down Payment + Investment Capital)
+      const downPayment = (!s.isRentOnly && !s.isInvestmentOnly) ? s.downPayment : 0;
+      const sideCapital = c.totalInvestmentContribution;
+      const initialCapital = downPayment + sideCapital;
 
-      if (s.isInvestmentOnly) {
-          investmentPortfolio = c?.netWorth || 0;
-      } else if (s.isRentOnly) {
-          investmentPortfolio = c?.netWorth || 0; // Rent mode net worth is pure investment
+      // 2. Principal Paid (Amortized Equity)
+      const principalPaid = (!s.isRentOnly && !s.isInvestmentOnly) ? c.principalPaid : 0;
+
+      // 3. Appreciation (Market Gain)
+      const appreciation = (!s.isRentOnly && !s.isInvestmentOnly) ? c.totalAppreciation : 0;
+
+      // 4. Tax Refunds & Cash Flow (Cash Benefit)
+      const taxRefund = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.taxRefund + c.accumulatedRentalIncome) : 0;
+      
+      // 5. Investment Profit (Side Portfolio Gain)
+      let investmentProfit = 0;
+      if (s.isInvestmentOnly || s.isRentOnly) {
+          investmentProfit = c.profit;
       } else {
-          houseEquity = c?.profit || 0;
-          returnedCapital = s.downPayment;
-          investmentPortfolio = c?.investmentPortfolio || 0;
+          // For Buy mode, profit is Value - Contribution
+          investmentProfit = Math.max(0, c.investmentPortfolio - c.totalInvestmentContribution);
       }
 
       return {
           name: s.name,
-          houseEquity,
-          returnedCapital,
-          investmentPortfolio,
-          color: s.color
+          initialCapital,
+          principalPaid,
+          appreciation,
+          taxRefund,
+          investmentProfit,
+          // Helper for total top label if needed
+          total: initialCapital + principalPaid + appreciation + taxRefund + investmentProfit
       };
   });
 
-  // Data for Line Chart (Wealth Trajectory)
-  const maxYears = Math.max(...calculatedData.map(c => c.annualData.length));
-  const lineChartData = [];
-  
-  for (let i = 0; i < maxYears; i++) {
-      const point: any = { year: i + 1 };
+  // Data for Line Chart (Strictly TOTAL GAIN Trajectory)
+  // Use data from the first calculated scenario to establish X-axis labels (labels are standardized in calc logic)
+  const primaryScenario = calculatedData[0];
+  const lineChartData = primaryScenario?.annualData.map((point, index) => {
+      const chartPoint: any = { label: point.label };
+      
       scenarios.forEach(s => {
           const c = calculatedData.find(cd => cd.id === s.id);
-          if (c && c.annualData[i]) {
-              point[s.name] = c.annualData[i].netWorth;
+          if (c && c.annualData[index]) {
+              chartPoint[s.name] = c.annualData[index].totalGain;
           }
       });
-      lineChartData.push(point);
-  }
-
-  // Data for Net Cost Comparison
-  const costData = scenarios.map(s => {
-      const c = calculatedData.find(cd => cd.id === s.id);
-      return {
-          name: s.name,
-          netCost: Math.abs(c?.netCost || 0), // Show as positive bar
-          color: s.color
-      };
-  });
+      return chartPoint;
+  }) || [];
 
   const isDark = theme !== 'light';
   const textColor = isDark ? '#e5e7eb' : '#374151'; 
-  const gridColor = isDark ? '#374151' : '#f3f4f6'; 
-  const tooltipBg = isDark ? '#1f2937' : '#ffffff';
+  const gridColor = isDark ? '#404040' : '#f3f4f6'; 
+  const tooltipBg = isDark ? '#171717' : '#ffffff';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
       
-      {/* Wealth Trajectory (Line Chart) */}
+      {/* Wealth Trajectory (Line Chart) - Uses TOTAL GAIN */}
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
-        <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Wealth Trajectory</h3>
-        <p className="text-xs text-gray-500 mb-4">Net Worth growth over time (Equity + Investments).</p>
+        <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Gain Trajectory</h3>
+        <p className="text-xs text-gray-500 mb-4">Cumulative Wealth Generated Over Time (Profit). <br/>Includes Equity Gains, Tax Refunds, Rental Income, and Investment Growth.</p>
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={lineChartData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+            <LineChart data={lineChartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
-              <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
-              <YAxis tickFormatter={(val) => `$${val/1000}k`} axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
+              <XAxis 
+                dataKey="label" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fontSize: 12, fill: textColor}} 
+                label={{ value: 'Timeline', position: 'insideBottomRight', offset: -5, fill: textColor, fontSize: 10 }}
+              />
+              <YAxis 
+                tickFormatter={(val) => `$${val/1000}k`} 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fontSize: 12, fill: textColor}} 
+              >
+                 <Label value="Total Gain ($)" angle={-90} position="insideLeft" fill={textColor} fontSize={10} />
+              </YAxis>
               <Tooltip 
-                formatter={(value: number) => formatCurrency(value)} 
+                formatter={(value: number, name: string) => [formatCurrency(value), 'Total Gain']}
+                labelFormatter={(label) => `${label}`}
                 cursor={{stroke: textColor}}
                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: tooltipBg, color: isDark ? 'white' : 'black'}}
               />
@@ -108,6 +126,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
                     stroke={s.color} 
                     strokeWidth={3} 
                     dot={false} 
+                    activeDot={{ r: 6 }}
                   />
               ))}
             </LineChart>
@@ -115,25 +134,40 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
         </div>
       </div>
 
-      {/* Asset Composition (Stacked Bar) */}
+      {/* Asset Composition (Stacked Bar) - Correct Buckets */}
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
-        <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Asset Composition</h3>
-        <p className="text-xs text-gray-500 mb-4">Breakdown of Home Equity vs Side Investment Portfolio.</p>
+        <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Wealth Breakdown</h3>
+        <p className="text-xs text-gray-500 mb-4">Composition of Assets & Accumulated Cash Benefits.</p>
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={profitData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+            <BarChart data={compositionData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <YAxis tickFormatter={(val) => `$${val/1000}k`} axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <Tooltip 
                 formatter={(value: number) => formatCurrency(value)} 
-                cursor={{fill: isDark ? '#374151' : '#f9fafb'}}
+                cursor={{fill: isDark ? '#404040' : '#f9fafb'}}
                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: tooltipBg, color: isDark ? 'white' : 'black'}}
               />
               <Legend wrapperStyle={{color: textColor}} />
-              <Bar dataKey="returnedCapital" name="Returned Capital" stackId="a" fill="#818cf8" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="houseEquity" name="Home Equity Gain" stackId="a" fill="#34d399" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="investmentPortfolio" name="Investment Portfolio" stackId="a" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+              
+              {/* STACK ORDER (Bottom to Top) */}
+              
+              {/* 1. Initial Capital (Blue/Purple) */}
+              <Bar dataKey="initialCapital" name="Initial Capital" stackId="a" fill="#818cf8" radius={[0, 0, 0, 0]} />
+              
+              {/* 2. Principal Paid (Green) */}
+              <Bar dataKey="principalPaid" name="Principal Paid" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
+              
+              {/* 3. Appreciation (Dark Green) */}
+              <Bar dataKey="appreciation" name="Appreciation" stackId="a" fill="#15803d" radius={[0, 0, 0, 0]} />
+              
+              {/* 4. Investment Profit (Purple) */}
+              <Bar dataKey="investmentProfit" name="Inv. Profit" stackId="a" fill="#c084fc" radius={[0, 0, 0, 0]} />
+              
+              {/* 5. Tax Refund (Teal - Top) */}
+              <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
+              
             </BarChart>
           </ResponsiveContainer>
         </div>
