@@ -1,4 +1,5 @@
 
+
 export interface LoanScenario {
   id: string;
   name: string;
@@ -10,7 +11,7 @@ export interface LoanScenario {
   homeValue: number;
   lockFMV: boolean;
 
-  // Loan
+  // Loan 1
   loanAmount: number;
   lockLoan: boolean;
   interestRate: number;
@@ -18,20 +19,34 @@ export interface LoanScenario {
   yearsRemaining: number; 
   monthsRemaining: number;
 
+  // Loan 2 (New)
+  hasSecondLoan: boolean;
+  secondLoanAmount: number;
+  secondLoanInterestRate: number;
+  secondLoanTermYears: number;
+  secondLoanYearsRemaining: number;
+  secondLoanMonthsRemaining: number;
+
   // Annual Expenses ($)
   propertyTax: number;
+  propertyTaxRate: number; // New: Percentage based tax
+  usePropertyTaxRate: boolean; // New: Toggle for % vs $
   homeInsurance: number;
   hoa: number;
   pmi: number;
 
   // Tax Benefit
-  taxRefundRate: number; // % of interest returned
+  taxRefundRate: number; // Marginal Tax Rate (applied to Mortgage Interest only)
 
   // Cash / Payments
   downPayment: number; // Initial Cash In
   oneTimeExtraPayment: number;
   oneTimeExtraPaymentMonth: number;
   monthlyExtraPayment: number;
+  
+  // Income (Buy Mode)
+  rentalIncome: number;
+  lockRentIncome: boolean;
 
   // Rent Mode Specifics
   rentMonthly: number;
@@ -42,6 +57,7 @@ export interface LoanScenario {
   
   // Investment Mode Specifics (Overrides globals if needed, strictly for this card)
   investmentCapital?: number;
+  lockInvestment: boolean; // New: Sync with global investment capital
   investmentMonthly?: number;
   investmentRate?: number;
 }
@@ -50,7 +66,10 @@ export interface CalculatedLoan {
   id: string;
   
   // Monthly Averages (for UI)
-  monthlyPrincipalAndInterest: number;
+  monthlyPrincipalAndInterest: number; // Total 1st + 2nd
+  monthlyFirstPI: number; // 1st Loan P&I breakdown
+  monthlySecondPI: number; // 2nd Loan P&I breakdown
+  
   monthlyTax: number;
   monthlyInsurance: number;
   monthlyHOA: number;
@@ -64,9 +83,14 @@ export interface CalculatedLoan {
   taxRefund: number;
   netCost: number; // Total Paid - Equity - Refund
   
+  // Wealth Components
+  principalPaid: number; // Pure principal paydown (Forced Savings)
+  totalAppreciation: number; // Market growth
+  accumulatedRentalIncome: number; // Cash from rent
+
   // Snapshot at Horizon
   futureHomeValue: number;
-  remainingBalance: number;
+  remainingBalance: number; // 1st + 2nd
   equity: number;
   netWorth: number; // Equity + Investment Portfolio (if modeled)
   investmentPortfolio: number; // Future Value of side cash
@@ -88,23 +112,26 @@ export interface CalculatedLoan {
 export interface AmortizationPoint {
   monthIndex: number;
   date: string;
-  balance: number;
-  interest: number;
-  principal: number;
+  balance: number; // Total Balance
+  interest: number; // Total Interest
+  principal: number; // Total Principal
   extraPayment: number;
   totalPayment: number;
   totalInterest: number;
+  totalTaxRefund: number; // Added to track cumulative refund at each point
   totalPaidToDate: number;
   equity: number;
 }
 
 export interface AnnualDataPoint {
-  year: number;
+  label: string; // "Mo 1" or "Yr 1"
+  year: number; // Numeric index for sorting/logic
   homeEquity: number;
   investmentValue: number;
   returnedCapital: number; // Down Payment portion
   netWorth: number;
   netCost: number;
+  totalGain: number; // Wealth Generated (Profit)
 }
 
 export type AnalysisStatus = 'idle' | 'loading' | 'success' | 'error';
