@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { X, Link2, Search, Loader2 } from 'lucide-react';
 import { Theme } from '../App';
@@ -34,7 +33,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImp
     }
   };
 
-  const bgClass = theme === 'light' ? 'bg-white' : 'bg-gray-800';
+  const bgClass = theme === 'light' ? 'bg-white' : 'bg-neutral-800';
   const textClass = theme === 'light' ? 'text-gray-900' : 'text-gray-100';
   const inputClass = theme === 'light' ? 'bg-gray-50 border-gray-300 text-gray-900' : 'bg-gray-700 border-gray-600 text-white';
 
