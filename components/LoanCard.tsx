@@ -450,7 +450,33 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                             <SliderInput label="One-Time Extra" value={scenario.oneTimeExtraPayment} onChange={v => handleChange('oneTimeExtraPayment', v)} min={0} max={500000} step={1000} theme={theme} />
                             
                             {/* Rental Income Input */}
-                            <SliderInput label="Rental Income ($/mo)" value={scenario.rentalIncome || 0} onChange={v => handleChange('rentalIncome', v)} min={0} max={10000} step={50} theme={theme} />
+                            <div>
+                                <SliderInput label="Rental Income ($/mo)" value={scenario.rentalIncome || 0} onChange={v => handleChange('rentalIncome', v)} min={0} max={10000} step={50} theme={theme} />
+                                
+                                <div className="flex items-center gap-2 mb-2 mt-1 justify-end">
+                                    <label className={`text-[9px] flex items-center gap-1 ${labelColor} cursor-pointer`}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={scenario.rentalIncomeTaxEnabled} 
+                                            onChange={(e) => handleChange('rentalIncomeTaxEnabled', e.target.checked)}
+                                            className="rounded text-brand-600 focus:ring-brand-500 w-3 h-3"
+                                        />
+                                        Taxable Income
+                                    </label>
+                                </div>
+
+                                {scenario.rentalIncomeTaxEnabled && (
+                                    <div className="animate-in slide-in-from-top-1 fade-in duration-200">
+                                        <SliderInput 
+                                            label="Tax Rate (%)" 
+                                            value={scenario.rentalIncomeTaxRate ?? 20} 
+                                            onChange={v => handleChange('rentalIncomeTaxRate', v)} 
+                                            min={0} max={50} step={1} 
+                                            theme={theme} 
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         )}
                     </div>
