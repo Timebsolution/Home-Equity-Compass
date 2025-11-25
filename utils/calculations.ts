@@ -329,8 +329,12 @@ export const calculateLoan = (
       accumulatedEquity += totalPrincipalThisMonth;
       accumulatedPaid += totalMonthPayment;
       
-      // Calculate Rental Income for this month
-      accumulatedRentalIncome += currentRentalIncome;
+      // Calculate Rental Income for this month (With optional Tax deduction)
+      let effectiveRentalIncome = currentRentalIncome;
+      if (scenario.rentalIncomeTaxEnabled) {
+          effectiveRentalIncome = currentRentalIncome * (1 - (scenario.rentalIncomeTaxRate / 100));
+      }
+      accumulatedRentalIncome += effectiveRentalIncome;
 
       // TAX REFUND CALCULATION
       // Refund based strictly on Mortgage Interest deduction (Including 2nd loan)
@@ -401,10 +405,15 @@ export const calculateLoan = (
   const taxRefundAtHorizon = snapshot ? snapshot.totalTaxRefund : 0; 
   
   // Re-calculate accumulated rental income up to horizon exactly
+  // We need to apply the tax logic here as well to match the chart logic
   let rentalIncomeAtHorizon = 0;
   let rIncome = scenario.rentalIncome || 0;
   for (let i = 1; i <= horizonMonths; i++) {
-      rentalIncomeAtHorizon += rIncome;
+      let netRIncome = rIncome;
+      if (scenario.rentalIncomeTaxEnabled) {
+          netRIncome = rIncome * (1 - (scenario.rentalIncomeTaxRate / 100));
+      }
+      rentalIncomeAtHorizon += netRIncome;
       if (i % 12 === 0) {
           rIncome *= (1 + (scenario.rentIncreasePerYear || 0) / 100);
       }
