@@ -47,6 +47,8 @@ export interface LoanScenario {
   // Income (Buy Mode)
   rentalIncome: number;
   lockRentIncome: boolean;
+  rentalIncomeTaxEnabled: boolean; // New: Apply tax to rental income?
+  rentalIncomeTaxRate: number; // New: Tax rate for rental income
 
   // Rent Mode Specifics
   rentMonthly: number;
