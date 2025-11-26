@@ -1,5 +1,3 @@
-
-
 export interface LoanScenario {
   id: string;
   name: string;
@@ -40,9 +38,12 @@ export interface LoanScenario {
 
   // Cash / Payments
   downPayment: number; // Initial Cash In
+  closingCosts: number; // New: Upfront costs for purchase/refi
+  sellingCostRate: number; // New: % cost to sell (Agent fees etc)
   oneTimeExtraPayment: number;
   oneTimeExtraPaymentMonth: number;
   monthlyExtraPayment: number;
+  manualExtraPayments?: Record<number, number>; // New: Specific month overrides (Month Index -> Amount)
   
   // Income (Buy Mode)
   rentalIncome: number;
@@ -62,6 +63,7 @@ export interface LoanScenario {
   lockInvestment: boolean; // New: Sync with global investment capital
   investmentMonthly?: number;
   investmentRate?: number;
+  investMonthlySavings: boolean; // New: Toggle to enable/disable compounding of savings
 }
 
 export interface CalculatedLoan {
@@ -89,6 +91,7 @@ export interface CalculatedLoan {
   principalPaid: number; // Pure principal paydown (Forced Savings)
   totalAppreciation: number; // Market growth
   accumulatedRentalIncome: number; // Cash from rent
+  totalRentalTax: number; // New: Explicitly track rental tax for display
 
   // Snapshot at Horizon
   futureHomeValue: number;
@@ -97,9 +100,9 @@ export interface CalculatedLoan {
   netWorth: number; // Equity + Investment Portfolio (if modeled)
   investmentPortfolio: number; // Future Value of side cash
   
-  // New Metrics
+  // New metrics
   profit: number; // Equity - Down Payment (Return on Capital logic)
-  totalCashInvested: number; // Down + Extra + OneTime
+  totalCashInvested: number; // Down + Closing + Extra + OneTime
   averageEquityPerMonth: number;
   totalExtraPrincipal: number;
   totalInvestmentContribution: number; // Total cash put into investment (Principal + Monthly)
@@ -109,6 +112,20 @@ export interface CalculatedLoan {
   
   // Annual Data points for graphs
   annualData: AnnualDataPoint[];
+  
+  // Analysis
+  breakEvenMonths?: number;
+  sellingCosts: number; // Explicit tracking
+  
+  // Detailed Cash Flow & ROI
+  totalInvestedAmount: number; // Explicit total cash put in (Net Monthly Out + Upfront)
+  initialCapitalBase: number; // New: The denominator used for ROI calc
+  effectiveAnnualReturn: number; // ROI %
+
+  // Extra Payment Analysis
+  lifetimeInterestSaved: number;
+  monthsSaved: number;
+  interestSavedAtHorizon: number;
 }
 
 export interface AmortizationPoint {
@@ -123,6 +140,8 @@ export interface AmortizationPoint {
   totalTaxRefund: number; // Added to track cumulative refund at each point
   totalPaidToDate: number;
   equity: number;
+  accumulatedRentalIncome: number; // Cumulative Rental Income
+  accumulatedRentalTax: number; // Cumulative Rental Tax
 }
 
 export interface AnnualDataPoint {
