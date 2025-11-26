@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart } from 'lucide-react';
+import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart, PiggyBank, CreditCard, Receipt, Building, Landmark, Wallet, Briefcase, Scale, Tag, LogOut, Clock, Calculator } from 'lucide-react';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
 import { Theme } from '../App';
@@ -16,6 +17,12 @@ interface LoanCardProps {
   theme: Theme;
   projectionYears: number;
   isWinner: boolean;
+  globalInvestmentSettings?: {
+      globalCashInvestment: number;
+      investmentReturnRate: number;
+      globalMonthlyContribution: number;
+      globalContributionFrequency: string;
+  };
 }
 
 const SliderInput = ({ 
@@ -47,7 +54,6 @@ const SliderInput = ({
     const [localStr, setLocalStr] = useState(value.toString());
     const [focused, setFocused] = useState(false);
 
-    // Sync from prop only when not being edited by user to prevent jumping
     useEffect(() => {
         if (!focused) {
             setLocalStr(value.toString());
@@ -56,15 +62,10 @@ const SliderInput = ({
 
     const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         let val = e.target.value;
-        
-        // Strip leading zero if it's not a decimal point (e.g. "05" -> "5")
-        // But allow "0." for decimals
         if (val.length > 1 && val.startsWith('0') && val[1] !== '.') {
             val = val.replace(/^0+/, ''); 
-            if (val === '') val = '0'; // Handle case where user typed 00 -> 0
+            if (val === '') val = '0'; 
         }
-
-        // Allow numeric characters and one dot, or empty
         if (val === '' || /^[0-9]*\.?[0-9]*$/.test(val)) {
             setLocalStr(val);
             if (val === '') {
@@ -108,7 +109,6 @@ const SliderInput = ({
     );
 };
 
-// Robust Isolated Tooltip
 const Tooltip = ({ text }: { text: string }) => {
     const [isVisible, setIsVisible] = useState(false);
 
@@ -123,7 +123,7 @@ const Tooltip = ({ text }: { text: string }) => {
                 e.stopPropagation();
                 setIsVisible(false);
             }}
-            onClick={(e) => e.stopPropagation()} // Critical: Prevent accordion toggle
+            onClick={(e) => e.stopPropagation()} 
         >
             <div className={`cursor-help transition-colors ${isVisible ? 'text-brand-500' : 'text-gray-400 hover:text-gray-500'}`}>
                 <Info size={12} />
@@ -133,8 +133,7 @@ const Tooltip = ({ text }: { text: string }) => {
                     className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[280px] p-3 bg-gray-900/95 backdrop-blur border border-gray-700 text-gray-100 text-[11px] leading-relaxed rounded-lg shadow-2xl z-50 whitespace-normal animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
                     style={{ minWidth: '180px' }}
                 >
-                    {text}
-                    {/* Arrow */}
+                    <div className="whitespace-pre-wrap">{text}</div>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900/95"></div>
                 </div>
             )}
@@ -142,7 +141,6 @@ const Tooltip = ({ text }: { text: string }) => {
     );
 };
 
-// Breakdown Row for Collapsible Sections
 const BreakdownRow = ({ 
     label, 
     value, 
@@ -158,13 +156,15 @@ const BreakdownRow = ({
     tooltip?: string,
     bgClass?: string
 }) => (
-    <div className={`flex justify-between items-center text-[10px] py-1 pl-4 pr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded transition-colors ${bgClass || ''}`}>
-        <div className="flex items-center gap-1.5">
-            {icon && <span className="opacity-70">{icon}</span>}
-            <span className="text-gray-500 dark:text-gray-400">{label}</span>
-            {tooltip && <Tooltip text={tooltip} />}
+    <div className={`flex justify-between items-center text-[10px] py-1 pl-2 pr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded transition-colors ${bgClass || ''}`}>
+        <div className="flex items-center gap-2">
+            {icon && <span className="opacity-70 text-gray-400">{icon}</span>}
+            <div className="flex items-center gap-1">
+                <span className="text-gray-500 dark:text-gray-400 font-medium">{label}</span>
+                {tooltip && <Tooltip text={tooltip} />}
+            </div>
         </div>
-        <span className={`font-mono font-medium ${colorClass || 'text-gray-700 dark:text-gray-300'}`}>{value}</span>
+        <span className={`font-mono font-bold ${colorClass || 'text-gray-700 dark:text-gray-300'}`}>{value}</span>
     </div>
 );
 
@@ -179,13 +179,11 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   canRemove,
   theme,
   projectionYears,
-  isWinner
+  isWinner,
+  globalInvestmentSettings
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
-  
-  // Independent open states for accordions (allows multiple open)
-  const [openSections, setOpenSections] = useState({ gain: false, invested: false });
 
   const handleChange = (field: keyof LoanScenario, value: any) => {
     const numValue = parseFloat(value);
@@ -196,85 +194,72 @@ export const LoanCard: React.FC<LoanCardProps> = ({
     onUpdate(scenario.id, { [field]: !scenario[field] });
   };
 
-  const toggleTaxMode = () => {
-      onUpdate(scenario.id, { usePropertyTaxRate: !scenario.usePropertyTaxRate });
-  };
-
   const cycleMode = () => {
     if (scenario.isInvestmentOnly) {
-        onUpdate(scenario.id, { isInvestmentOnly: false, isRentOnly: false }); // Back to Buy
+        onUpdate(scenario.id, { isInvestmentOnly: false, isRentOnly: false }); 
     } else if (scenario.isRentOnly) {
-        onUpdate(scenario.id, { isRentOnly: false, isInvestmentOnly: true }); // Rent -> Invest
+        onUpdate(scenario.id, { isRentOnly: false, isInvestmentOnly: true }); 
     } else {
-        onUpdate(scenario.id, { isRentOnly: true }); // Buy -> Rent
+        onUpdate(scenario.id, { isRentOnly: true }); 
     }
   };
 
-  const toggleSecondLoan = () => {
-      if (scenario.hasSecondLoan) {
-          onUpdate(scenario.id, { hasSecondLoan: false, secondLoanAmount: 0 });
-      } else {
-          onUpdate(scenario.id, { 
-              hasSecondLoan: true, 
-              secondLoanAmount: 50000, 
-              secondLoanInterestRate: 3.0,
-              secondLoanTermYears: 30,
-              secondLoanYearsRemaining: 30
-          });
-      }
-  };
-
-  // --- Style Helpers based on Theme (Night is now Neutral Gray) ---
   const cardBg = theme === 'light' ? 'bg-white' : 'bg-neutral-800';
   const labelColor = theme === 'light' ? 'text-gray-500' : 'text-gray-400';
-  const textColor = theme === 'light' ? 'text-gray-900' : 'text-gray-100';
+  const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/20 border-gray-600 text-white';
   const advancedBg = theme === 'light' ? 'bg-gray-50' : 'bg-black/30';
   const badgeGlobal = "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300";
   const badgeManual = "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300";
 
-  // Dynamic layout based on expansion state - simplified to always be column for easier rich collapsed view
-  const containerPadding = 'p-4';
-  const containerLayout = 'flex flex-col gap-2';
-
-  // Calculate discrete months for display to avoid confusion
   const simulatedMonths = Math.round(projectionYears * 12);
 
-  // --- CLEAN STRUCTURE CALCULATIONS ---
-  // Round components individually first to ensure visual consistency with the grid
   const rPrincipal = Math.round(calculated.principalPaid);
   const rTax = Math.round(calculated.taxRefund);
   const rRent = Math.round(calculated.accumulatedRentalIncome);
   const rRentTax = Math.round(calculated.totalRentalTax || 0);
   const rAppreciation = Math.round(calculated.totalAppreciation);
   const rRealInvGain = Math.round(Math.max(0, calculated.investmentPortfolio - calculated.totalInvestmentContribution));
-
-  const rClosing = Math.round(scenario.closingCosts || 0);
-  const rInterestSaved = Math.round(calculated.interestSavedAtHorizon);
   const rSellingCosts = Math.round(calculated.sellingCosts);
-  const rTotalInterest = Math.round(calculated.totalInterest);
-  
-  // 1. Total Gain (Wealth Generated)
+  const rPropertyCosts = Math.round(calculated.totalPropertyCosts);
+  const rTotalPaid = Math.round(calculated.totalPaid); // PITI + HOA + Extra
+  const rClosing = Math.round(scenario.closingCosts || 0);
+  const rDown = Math.round(scenario.downPayment || 0);
+  const rMonthlyPITI = Math.round(calculated.totalMonthlyPayment);
+  const rNetMonthly = Math.round(calculated.netMonthlyPayment);
+  const rCapitalGainsTax = Math.round(calculated.capitalGainsTax || 0);
+  const rInvContribution = Math.round(calculated.totalInvestmentContribution || 0);
+  const rLoanBalance = Math.round(calculated.remainingBalance);
+  const rEquityAtSale = Math.round(calculated.futureHomeValue - calculated.remainingBalance - calculated.sellingCosts);
+
   const displayTotalGain = calculated.profit;
-
-  // 2. Cash Back If Sell (Absolute Exit Equity)
-  const displayCashBack = calculated.equity;
-
-  const toggleSection = (section: 'gain' | 'invested') => {
-      setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
+  const displayCashBack = calculated.equity; // Cash After Sale (Equity - CapGains)
 
   const getSummaryText = () => {
     if (scenario.isInvestmentOnly) return `Investment Strategy · ${projectionYears.toFixed(1)} years`;
     if (scenario.isRentOnly) return `Rent Growth · ${projectionYears.toFixed(1)} years (${simulatedMonths} mos)`;
     return `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)} · ${projectionYears.toFixed(1)} years (${simulatedMonths} mos)`;
   };
+  
+  const getPitiTitle = () => {
+      if (scenario.isInvestmentOnly) return "Monthly Contribution";
+      if (scenario.isRentOnly) return "Monthly Savings";
+      return "Monthly Payment (PITI)";
+  };
+
+  const getNetPaymentTitle = () => {
+      if (scenario.isInvestmentOnly) return "Net Contribution";
+      if (scenario.isRentOnly) return "Net Monthly Savings";
+      return "Your Net Payment";
+  };
+  
+  // lockInvestment = false means Global (Blue), lockInvestment = true means Manual (Orange)
+  const isGlobalInvestment = !scenario.lockInvestment;
 
   return (
     <div 
-      className={`${cardBg} rounded-xl shadow-lg border-t-4 ${containerPadding} ${containerLayout} relative transition-all duration-300 hover:shadow-xl group`}
+      className={`${cardBg} rounded-xl shadow-lg border-t-4 p-4 flex flex-col gap-2 relative transition-all duration-300 hover:shadow-xl group`}
       style={{ borderColor: isWinner ? '#10b981' : scenario.color, height: 'fit-content' }}
     >
-      {/* Expanded View */}
       {isExpanded && (
         <>
             {isWinner && (
@@ -283,7 +268,6 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                 </div>
             )}
 
-            {/* Header */}
             <div className={`flex justify-between items-center pb-2 border-b ${theme === 'light' ? 'border-gray-100' : 'border-gray-700'}`}>
                 <input 
                 type="text" 
@@ -313,21 +297,18 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                 </div>
             </div>
 
-            {/* Content Body - Split Layout for Compactness */}
             <div className="flex flex-col md:grid md:grid-cols-2 gap-4 md:gap-8 mt-1">
                 
                 {/* LEFT SIDE: Inputs / Meta / Controls */}
                 <div className="flex flex-col gap-2">
-                    {/* Sub Header Info */}
                     <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
                         <div>{getSummaryText()}</div>
                         <div className="mt-1">
-                            <div className="text-[10px] uppercase font-bold text-gray-400">Total Gain</div>
+                            <div className="text-[10px] uppercase font-bold text-gray-400">PROFIT</div>
                             <div className="text-xl font-extrabold text-brand-600 dark:text-brand-400 tracking-tight">{formatCurrency(displayTotalGain)}</div>
                         </div>
                     </div>
 
-                    {/* Mode Toggle */}
                     <div className="flex justify-start mt-1">
                         <button 
                             onClick={cycleMode}
@@ -344,7 +325,6 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                         </button>
                     </div>
 
-                    {/* Toggle Edit / Advanced */}
                     <button 
                         onClick={() => setShowAdvanced(!showAdvanced)}
                         className={`flex items-center gap-1 text-xs font-semibold ${theme === 'light' ? 'text-gray-500 hover:text-brand-600 bg-gray-100' : 'text-gray-400 hover:text-brand-400 bg-white/10'} w-full justify-center py-1.5 rounded transition-colors mt-1`}
@@ -353,481 +333,390 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                         {showAdvanced ? 'Hide Details' : 'Edit Details'}
                     </button>
 
-                    {/* --- INVESTMENT ONLY INPUTS --- */}
-                    {scenario.isInvestmentOnly && (
-                        <div className={`p-3 rounded-lg ${advancedBg} border ${theme==='light'?'border-gray-200':'border-gray-700'} space-y-3 mt-2`}>
-                            <div className="flex justify-between items-center mb-1">
-                                <span className="text-[9px] font-bold text-gray-400 uppercase">Parameters</span>
-                                <button onClick={() => toggleLock('lockInvestment')} className={`text-[9px] px-1.5 py-0.5 rounded border ${!scenario.lockInvestment ? badgeGlobal : badgeManual}`}>
-                                    {!scenario.lockInvestment ? "Global" : "Manual"}
-                                </button>
-                            </div>
-                            <SliderInput 
-                                label="Starting Capital" 
-                                value={scenario.investmentCapital ?? 100000} 
-                                onChange={v => onUpdate(scenario.id, {investmentCapital: v})} 
-                                min={0} max={1000000} step={5000} theme={theme}
-                                disabled={!scenario.lockInvestment}
-                            />
-                            <SliderInput 
-                                label="Monthly Contribution" 
-                                value={scenario.investmentMonthly ?? 0} 
-                                onChange={v => onUpdate(scenario.id, {investmentMonthly: v})} 
-                                min={0} max={10000} step={100} theme={theme} 
-                                disabled={!scenario.lockInvestment}
-                            />
-                            <SliderInput 
-                                label="Return Rate (%)" 
-                                value={scenario.investmentRate ?? 5} 
-                                onChange={v => onUpdate(scenario.id, {investmentRate: v})} 
-                                min={0} max={15} step={0.1} theme={theme} 
-                                disabled={!scenario.lockInvestment}
-                            />
-                        </div>
-                    )}
-
-                    {/* --- ADVANCED INPUTS (Buy/Rent) --- */}
-                    {showAdvanced && !scenario.isInvestmentOnly && (
+                    {showAdvanced && (
                     <div className={`${advancedBg} border ${theme==='light'?'border-gray-200':'border-gray-700'} p-3 rounded-lg space-y-3 mt-2 text-left animate-in fade-in slide-in-from-top-1`}>
-                        {/* LOAN DETAILS (Buy Only) */}
-                        {!scenario.isRentOnly && (
+                        
+                        {/* 1. HOUSE & LOAN */}
+                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
                             <div className="flex justify-between items-center">
-                                <span className="text-[9px] font-bold text-gray-400 uppercase">Loan Details</span>
-                                <button onClick={() => toggleLock('lockLoan')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockLoan ? badgeManual : badgeGlobal}`}>
-                                    {scenario.lockLoan ? "Manual" : "Global"}
-                                </button>
-                            </div>
-                            <SliderInput label="Loan Amount" value={scenario.loanAmount} onChange={v => handleChange('loanAmount', v)} min={50000} max={2000000} step={5000} theme={theme} />
-                            <SliderInput label="Interest Rate (%)" value={scenario.interestRate} onChange={v => handleChange('interestRate', v)} min={0} max={15} step={0.125} theme={theme} />
-                            <div className="grid grid-cols-2 gap-2">
-                                <SliderInput label="Yrs Left" value={scenario.yearsRemaining} onChange={v => handleChange('yearsRemaining', v)} min={0} max={40} step={1} theme={theme} />
-                                <SliderInput label="Mos Left" value={scenario.monthsRemaining} onChange={v => handleChange('monthsRemaining', v)} min={0} max={11} step={1} theme={theme} />
-                            </div>
-
-                            {/* 2nd Loan Toggle Section */}
-                            {!scenario.hasSecondLoan && (
-                                <button 
-                                    onClick={toggleSecondLoan}
-                                    className={`w-full text-[10px] py-1 mt-2 border border-dashed rounded flex items-center justify-center gap-1 opacity-60 hover:opacity-100 transition-opacity ${theme === 'light' ? 'border-gray-400 text-gray-600' : 'border-gray-500 text-gray-300'}`}
-                                >
-                                    <PlusCircle size={10} /> Add 2nd Loan
-                                </button>
-                            )}
-                            
-                            {/* 2nd Loan Inputs */}
-                            {scenario.hasSecondLoan && (
-                                <div className={`mt-2 pt-2 border-t border-dashed ${theme==='light'?'border-gray-300':'border-gray-600'}`}>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="text-[9px] font-bold text-gray-400 uppercase">2nd Loan / HELOC</span>
-                                        <button onClick={toggleSecondLoan} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 p-1 rounded">
-                                            <Trash2 size={10} />
-                                        </button>
-                                    </div>
-                                    <SliderInput label="Loan Amount" value={scenario.secondLoanAmount} onChange={v => handleChange('secondLoanAmount', v)} min={0} max={500000} step={1000} theme={theme} />
-                                    <SliderInput label="Rate (%)" value={scenario.secondLoanInterestRate} onChange={v => handleChange('secondLoanInterestRate', v)} min={0} max={15} step={0.125} theme={theme} />
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <SliderInput label="Yrs Left" value={scenario.secondLoanYearsRemaining} onChange={v => handleChange('secondLoanYearsRemaining', v)} min={0} max={40} step={1} theme={theme} />
-                                        <SliderInput label="Mos Left" value={scenario.secondLoanMonthsRemaining} onChange={v => handleChange('secondLoanMonthsRemaining', v)} min={0} max={11} step={1} theme={theme} />
-                                    </div>
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">HOUSE & LOAN</span>
+                                <div>
+                                    <button onClick={() => toggleLock('lockFMV')} className={`text-[9px] px-1.5 py-0.5 rounded border mr-1 ${scenario.lockFMV ? badgeManual : badgeGlobal}`}>
+                                        FMV: {scenario.lockFMV ? "Manual" : "Global"}
+                                    </button>
+                                    <button onClick={() => toggleLock('lockLoan')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockLoan ? badgeManual : badgeGlobal}`}>
+                                        Loan: {scenario.lockLoan ? "Manual" : "Global"}
+                                    </button>
                                 </div>
-                            )}
+                            </div>
+                            <SliderInput 
+                                label="House Price" 
+                                value={scenario.homeValue} 
+                                onChange={v => handleChange('homeValue', v)} 
+                                min={100000} max={3000000} step={5000} theme={theme} 
+                                disabled={!scenario.lockFMV}
+                            />
+                            <SliderInput 
+                                label="Loan Amount" 
+                                value={scenario.loanAmount} 
+                                onChange={v => handleChange('loanAmount', v)} 
+                                min={50000} max={2000000} step={5000} theme={theme}
+                                disabled={!scenario.lockLoan}
+                            />
+                            <SliderInput label="Interest Rate (%)" value={scenario.interestRate} onChange={v => handleChange('interestRate', v)} min={0} max={15} step={0.125} theme={theme} />
+                            <SliderInput label="Years Left" value={scenario.yearsRemaining} onChange={v => handleChange('yearsRemaining', v)} min={0} max={40} step={1} theme={theme} />
                         </div>
                         )}
 
-                        {/* RENT DETAILS (Rent Only) */}
-                        {scenario.isRentOnly && (
+                        {/* 2. PROPERTY COSTS */}
+                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
-                            <span className="text-[9px] font-bold text-gray-400 uppercase">Rent Settings</span>
-                            <SliderInput label="Monthly Rent" value={scenario.rentMonthly} onChange={v => handleChange('rentMonthly', v)} min={500} max={10000} step={50} theme={theme} />
-                            <SliderInput label="Annual Inc (%)" value={scenario.rentIncreasePerYear} onChange={v => handleChange('rentIncreasePerYear', v)} min={0} max={10} step={0.1} theme={theme} />
-                        </div>
-                        )}
-
-                        {/* EXPENSES (Buy Only) */}
-                        {!scenario.isRentOnly && (
-                        <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
-                            <div className="flex justify-between items-center">
-                                <span className="text-[9px] font-bold text-gray-400 uppercase">Expenses</span>
-                                <button onClick={() => toggleLock('lockFMV')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockFMV ? badgeManual : badgeGlobal}`}>
-                                    {scenario.lockFMV ? "Manual" : "Global"}
-                                </button>
+                             <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">PROPERTY COSTS</span>
                             </div>
                             
-                            {/* Property Tax with Dollar/Percentage Toggle */}
                             <div>
                                 <div className="flex justify-between items-center mb-1">
-                                    <label className={`text-[10px] font-semibold ${labelColor}`}>Property Tax</label>
-                                    <div className="flex gap-1 bg-gray-200 dark:bg-gray-700 p-0.5 rounded text-[9px]">
-                                        <button 
-                                            onClick={() => scenario.usePropertyTaxRate && toggleTaxMode()}
-                                            className={`px-1.5 py-0.5 rounded ${!scenario.usePropertyTaxRate ? 'bg-white dark:bg-gray-600 shadow text-brand-600' : 'text-gray-500'}`}
-                                        >
-                                            $
-                                        </button>
-                                        <button 
-                                            onClick={() => !scenario.usePropertyTaxRate && toggleTaxMode()}
-                                            className={`px-1.5 py-0.5 rounded ${scenario.usePropertyTaxRate ? 'bg-white dark:bg-gray-600 shadow text-brand-600' : 'text-gray-500'}`}
-                                        >
-                                            %
-                                        </button>
-                                    </div>
+                                    <label className={`text-[10px] font-semibold ${labelColor}`}>Property Tax ($/yr)</label>
                                 </div>
-                                
-                                {scenario.usePropertyTaxRate ? (
-                                    <>
-                                        <SliderInput 
-                                            label="Annual Rate (%)" 
-                                            value={scenario.propertyTaxRate ?? 1.25} 
-                                            onChange={v => handleChange('propertyTaxRate', v)} 
-                                            min={0} max={5} step={0.01} theme={theme} 
-                                        />
-                                        <div className="text-[9px] text-right text-gray-400 -mt-1 mb-2">
-                                            ≈ {formatCurrency(scenario.homeValue * ((scenario.propertyTaxRate || 0)/100))}/yr
-                                        </div>
-                                    </>
-                                ) : (
-                                    <SliderInput 
-                                        label="Amount ($/yr)" 
-                                        value={scenario.propertyTax} 
-                                        onChange={v => handleChange('propertyTax', v)} 
-                                        min={0} max={50000} step={100} theme={theme} 
-                                    />
-                                )}
+                                <SliderInput label="" value={scenario.propertyTax} onChange={v => handleChange('propertyTax', v)} min={0} max={50000} step={100} theme={theme} />
                             </div>
-
                             <SliderInput label="Insurance ($/yr)" value={scenario.homeInsurance} onChange={v => handleChange('homeInsurance', v)} min={0} max={10000} step={50} theme={theme} />
                             <SliderInput label="HOA ($/yr)" value={scenario.hoa} onChange={v => handleChange('hoa', v)} min={0} max={24000} step={50} theme={theme} />
                             <SliderInput label="PMI ($/yr)" value={scenario.pmi} onChange={v => handleChange('pmi', v)} min={0} max={10000} step={50} theme={theme} />
-                            
-                            <div className="pt-2 mt-2 border-t border-dashed border-gray-600/30">
-                                <SliderInput label="Selling Cost (%)" value={scenario.sellingCostRate ?? 6} onChange={v => handleChange('sellingCostRate', v)} min={0} max={10} step={0.5} theme={theme} />
-                            </div>
-
-                            <SliderInput label="Marginal Tax Rate (%)" value={scenario.taxRefundRate} onChange={v => handleChange('taxRefundRate', v)} min={0} max={50} step={1} theme={theme} />
-                            <SliderInput label="Home Value" value={scenario.homeValue} onChange={v => handleChange('homeValue', v)} min={100000} max={3000000} step={5000} theme={theme} />
                         </div>
                         )}
 
-                        {/* CASH & PAYMENTS (Buy Only) */}
-                        {!scenario.isRentOnly && (
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                                <span className="text-[9px] font-bold text-gray-400 uppercase">Cash & Payments</span>
-                                <button onClick={() => toggleLock('lockRentIncome')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockRentIncome ? badgeManual : badgeGlobal}`}>
-                                    {scenario.lockRentIncome ? "Manual Rent" : "Global Rent"}
-                                </button>
+                        {/* 3. RENT */}
+                        {!scenario.isInvestmentOnly && (
+                        <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
+                             <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">RENT {(!scenario.isRentOnly) && "(IF RENTING PART)"}</span>
+                                {scenario.isRentOnly ? (
+                                     <button onClick={() => toggleLock('lockRent')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockRent ? badgeManual : badgeGlobal}`}>
+                                        {scenario.lockRent ? "Manual" : "Global"}
+                                     </button>
+                                ) : (
+                                    <button onClick={() => toggleLock('lockRentIncome')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockRentIncome ? badgeManual : badgeGlobal}`}>
+                                        {scenario.lockRentIncome ? "Manual" : "Global"}
+                                    </button>
+                                )}
+                            </div>
+                            
+                            {scenario.isRentOnly ? (
+                                <>
+                                    <SliderInput 
+                                        label="Rent You Pay ($/mo)" 
+                                        value={scenario.rentMonthly} 
+                                        onChange={v => handleChange('rentMonthly', v)} 
+                                        min={500} max={10000} step={50} theme={theme} 
+                                        disabled={!scenario.lockRent}
+                                    />
+                                    <SliderInput label="Annual Inc (%)" value={scenario.rentIncreasePerYear} onChange={v => handleChange('rentIncreasePerYear', v)} min={0} max={10} step={0.1} theme={theme} />
+                                </>
+                            ) : (
+                                <>
+                                    <SliderInput 
+                                        label="Rent You Receive ($/mo)" 
+                                        value={scenario.rentalIncome || 0} 
+                                        onChange={v => handleChange('rentalIncome', v)} 
+                                        min={0} max={10000} step={50} theme={theme} 
+                                        disabled={!scenario.lockRentIncome}
+                                    />
+                                    <div className="flex items-center gap-2 mb-2 mt-1 justify-end">
+                                        <label className={`text-[9px] flex items-center gap-1 ${labelColor} cursor-pointer`}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={scenario.rentalIncomeTaxEnabled} 
+                                                onChange={(e) => handleChange('rentalIncomeTaxEnabled', e.target.checked)}
+                                                className="rounded text-brand-600 focus:ring-brand-500 w-3 h-3"
+                                            />
+                                            Rental Tax Apply?
+                                        </label>
+                                    </div>
+                                    {scenario.rentalIncomeTaxEnabled && (
+                                        <SliderInput label="Rental Tax Rate (%)" value={scenario.rentalIncomeTaxRate ?? 20} onChange={v => handleChange('rentalIncomeTaxRate', v)} min={0} max={50} step={1} theme={theme} />
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        )}
+                        
+                        {/* 4. BUYING / SELLING */}
+                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                        <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
+                             <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">BUYING / SELLING</span>
                             </div>
                             <SliderInput label="Down Payment" value={scenario.downPayment} onChange={v => handleChange('downPayment', v)} min={0} max={1000000} step={5000} theme={theme} />
                             <SliderInput label="Closing Costs" value={scenario.closingCosts || 0} onChange={v => handleChange('closingCosts', v)} min={0} max={50000} step={100} theme={theme} />
-                            <SliderInput label="One-Time Extra" value={scenario.oneTimeExtraPayment} onChange={v => handleChange('oneTimeExtraPayment', v)} min={0} max={500000} step={1000} theme={theme} />
+                            <SliderInput label="Selling Cost %" value={scenario.sellingCostRate ?? 6} onChange={v => handleChange('sellingCostRate', v)} min={0} max={10} step={0.5} theme={theme} />
+                            <SliderInput label={`Gain Tax % (< 2 yrs)`} value={scenario.capitalGainsTaxRate ?? 20} onChange={v => handleChange('capitalGainsTaxRate', v)} min={0} max={50} step={1} theme={theme} />
+                        </div>
+                        )}
+
+                        {/* 5. YOUR TAX SETTINGS */}
+                        <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
+                             <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">YOUR TAX SETTINGS</span>
+                            </div>
+                            <SliderInput label="Your Tax Bracket %" value={scenario.taxRefundRate} onChange={v => handleChange('taxRefundRate', v)} min={0} max={50} step={1} theme={theme} />
+                        </div>
+                        
+                        {/* 6. INVESTING */}
+                        <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
+                             <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">INVESTING</span>
+                                <button onClick={() => toggleLock('lockInvestment')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockInvestment ? badgeManual : badgeGlobal}`}>
+                                    {scenario.lockInvestment ? "Manual" : "Global"}
+                                </button>
+                            </div>
                             
-                            {/* EXTRA MONTHLY PAYMENT INPUT */}
-                            <div className={`p-2 rounded-lg border border-dashed ${theme==='light'?'bg-blue-50 border-blue-200':'bg-blue-900/10 border-blue-800'}`}>
+                            {/* Unified Inputs: Enabled if Manual (lock=true), Disabled if Global (lock=false) */}
+                            <SliderInput 
+                                label="Starting Capital" 
+                                value={!isGlobalInvestment ? (scenario.investmentCapital ?? 100000) : (globalInvestmentSettings?.globalCashInvestment ?? 0)} 
+                                onChange={v => onUpdate(scenario.id, {investmentCapital: v})} 
+                                min={0} max={1000000} step={5000} theme={theme} 
+                                disabled={isGlobalInvestment}
+                            />
+                            <SliderInput 
+                                label="Rate (% per annum)" 
+                                value={!isGlobalInvestment ? (scenario.investmentRate ?? 5) : (globalInvestmentSettings?.investmentReturnRate ?? 0)} 
+                                onChange={v => onUpdate(scenario.id, {investmentRate: v})} 
+                                min={0} max={15} step={0.1} theme={theme} 
+                                disabled={isGlobalInvestment}
+                            />
+                            <div className="mb-2">
                                 <SliderInput 
-                                    label={
-                                        <div className="flex items-center gap-1">
-                                            <span>Extra Monthly Payment ($/mo)</span>
-                                            <Tooltip text="Additional principal payment each month. Goes directly to reducing your loan balance faster." />
-                                        </div>
-                                    }
-                                    value={scenario.monthlyExtraPayment} 
-                                    onChange={v => handleChange('monthlyExtraPayment', v)} 
-                                    min={0} max={5000} step={50} theme={theme} 
+                                    label="Additional Amount" 
+                                    value={!isGlobalInvestment ? (scenario.investmentMonthly ?? 0) : (globalInvestmentSettings?.globalMonthlyContribution ?? 0)} 
+                                    onChange={v => onUpdate(scenario.id, {investmentMonthly: v})} 
+                                    min={0} max={10000} step={50} theme={theme} 
+                                    disabled={isGlobalInvestment}
                                 />
-                                {scenario.monthlyExtraPayment > 0 && (
-                                    <div className="text-[10px] text-green-600 dark:text-green-400 font-semibold text-right -mt-1">
-                                        💡 Paying +{formatCurrency(scenario.monthlyExtraPayment)}/mo principal
+                                <div className="flex justify-end">
+                                    <div className="w-1/2">
+                                        <label className={`text-[9px] font-semibold ${isGlobalInvestment ? 'text-gray-400' : 'text-gray-500'} mb-1 block`}>Frequency</label>
+                                        <select 
+                                            value={!isGlobalInvestment ? (scenario.investmentContributionFrequency || 'monthly') : (globalInvestmentSettings?.globalContributionFrequency || 'monthly')} 
+                                            onChange={e => onUpdate(scenario.id, {investmentContributionFrequency: e.target.value as any})}
+                                            disabled={isGlobalInvestment}
+                                            className={`w-full text-xs p-1 border rounded ${inputClass} ${isGlobalInvestment ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                        >
+                                            <option value="weekly">Weekly</option>
+                                            <option value="biweekly">Every 2 weeks</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="semiannually">Semi-annually</option>
+                                            <option value="annually">Annually</option>
+                                        </select>
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Rental Income Input */}
-                            <div>
-                                <SliderInput label="Rental Income ($/mo)" value={scenario.rentalIncome || 0} onChange={v => handleChange('rentalIncome', v)} min={0} max={10000} step={50} theme={theme} />
-                                
-                                <div className="flex items-center gap-2 mb-2 mt-1 justify-end">
-                                    <label className={`text-[9px] flex items-center gap-1 ${labelColor} cursor-pointer`}>
-                                        <input 
-                                            type="checkbox" 
-                                            checked={scenario.rentalIncomeTaxEnabled} 
-                                            onChange={(e) => handleChange('rentalIncomeTaxEnabled', e.target.checked)}
-                                            className="rounded text-brand-600 focus:ring-brand-500 w-3 h-3"
-                                        />
-                                        Taxable Income
-                                    </label>
                                 </div>
-
-                                {scenario.rentalIncomeTaxEnabled && (
-                                    <div className="animate-in slide-in-from-top-1 fade-in duration-200">
-                                        <SliderInput 
-                                            label="Tax Rate (%)" 
-                                            value={scenario.rentalIncomeTaxRate ?? 20} 
-                                            onChange={v => handleChange('rentalIncomeTaxRate', v)} 
-                                            min={0} max={50} step={1} 
-                                            theme={theme} 
-                                        />
-                                    </div>
-                                )}
+                            </div>
+                        </div>
+                        
+                        {/* 7. EXTRA PAYMENTS */}
+                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                        <div className="space-y-2">
+                             <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">EXTRA PAYMENTS</span>
                             </div>
                             
-                            {/* Investment Savings Toggle */}
-                            <div className="pt-2 border-t border-dashed border-gray-600/20">
-                                <div className="flex justify-between items-center mb-1">
-                                    <span className="text-[9px] font-bold text-gray-400 uppercase">Cash Management</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                     <input 
-                                        type="checkbox" 
-                                        checked={scenario.investMonthlySavings !== false} 
-                                        onChange={(e) => handleChange('investMonthlySavings', e.target.checked)}
-                                        className="rounded text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
-                                        id={`invest-toggle-${scenario.id}`}
-                                     />
-                                     <label htmlFor={`invest-toggle-${scenario.id}`} className={`text-[10px] ${textColor} cursor-pointer flex items-center gap-1`}>
-                                        Grow Idle Cash?
-                                        <Tooltip text="If checked, monthly savings (compared to baseline) will be invested at the global return rate. If unchecked, cash sits idle." />
-                                     </label>
+                            <div className="mb-2">
+                                <SliderInput label="Extra Monthly Payment" value={scenario.monthlyExtraPayment} onChange={v => handleChange('monthlyExtraPayment', v)} min={0} max={5000} step={50} theme={theme} />
+                                <div className="flex justify-end -mt-1 mb-2">
+                                    <div className="w-1/2">
+                                        <select 
+                                            value={scenario.monthlyExtraPaymentFrequency || 'monthly'} 
+                                            onChange={e => onUpdate(scenario.id, {monthlyExtraPaymentFrequency: e.target.value as any})}
+                                            className={`w-full text-xs p-1 border rounded ${inputClass}`}
+                                        >
+                                            <option value="weekly">Weekly</option>
+                                            <option value="biweekly">Every 2 weeks</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="semiannually">Semi-annually</option>
+                                            <option value="annually">Annually</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
                             
-                            {/* Show Investable Capital for Clarity if global investment is active */}
-                            {scenario.lockInvestment && (
-                                <div className="mt-2 pt-2 border-t border-dashed border-gray-600/20 text-[9px] flex justify-between items-center">
-                                    <div className="flex items-center gap-1">
-                                        <span className="text-gray-400">Available to Invest (Initial):</span>
-                                        <Tooltip text="Money you could invest elsewhere if you chose this option instead of paying down the loan." />
-                                    </div>
-                                    <span className="font-mono">{formatCurrency(Math.max(0, calculated.totalInvestmentContribution))}</span>
-                                </div>
-                            )}
+                            <SliderInput label="One-Time Payment" value={scenario.oneTimeExtraPayment} onChange={v => handleChange('oneTimeExtraPayment', v)} min={0} max={500000} step={1000} theme={theme} />
                         </div>
                         )}
                     </div>
                     )}
                 </div>
 
-                {/* RIGHT SIDE: Metrics & Results */}
+                {/* RIGHT SIDE: Financial Summary */}
                 <div className="flex flex-col gap-3">
-                    {/* Monthly Payment Section */}
-                    {!scenario.isInvestmentOnly && (
-                        !scenario.isRentOnly ? (
-                            <div className={`p-2 rounded-lg ${theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-900/10'} border ${theme==='light'?'border-blue-100':'border-blue-900/30'}`}>
-                                <div className="flex justify-between items-center mb-0.5">
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase">Monthly PITI</span>
-                                    <span className={`font-bold text-base ${textColor}`}>{formatCurrency(calculated.totalMonthlyPayment)}</span>
-                                </div>
-                                
-                                {/* Break-Even Analysis */}
-                                {calculated.breakEvenMonths && calculated.breakEvenMonths > 0 ? (
-                                    <div className="mb-1 text-right">
-                                        <span className="text-[9px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-1.5 py-0.5 rounded-full font-medium">
-                                            Break-even in {calculated.breakEvenMonths.toFixed(1)} mos
-                                        </span>
-                                    </div>
-                                ) : null}
 
-                                <div className="text-[9px] text-gray-400 flex flex-wrap justify-between gap-1">
-                                    {/* Breakdown: If 2 loans, split P&I */}
-                                    {scenario.hasSecondLoan ? (
-                                        <>
-                                            <span className="w-full flex justify-between">
-                                                <span>1st P&I: {formatCurrency(calculated.monthlyFirstPI)}</span>
-                                                <span>2nd P&I: {formatCurrency(calculated.monthlySecondPI)}</span>
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <span>P&I: {formatCurrency(calculated.monthlyPrincipalAndInterest)}</span>
-                                    )}
-                                    <div className="flex gap-2 w-full justify-between mt-0.5 border-t border-dashed border-gray-600/20 pt-0.5">
-                                        <span>Tax: {formatCurrency(calculated.monthlyTax)}</span>
-                                        <span>Ins: {formatCurrency(calculated.monthlyInsurance)}</span>
-                                    </div>
+                    {/* 0. PITI MINI CARD */}
+                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                        <div className={`rounded-lg border p-2 flex flex-col gap-2 shadow-sm ${theme==='light'?'bg-blue-50/50 border-blue-200 text-blue-900':'bg-blue-900/10 border-blue-800 text-blue-100'}`}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <PieChart size={14} className="text-blue-500" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">{getPitiTitle()}</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-sm font-bold block">{formatCurrency(rMonthlyPITI)}</span>
                                 </div>
                             </div>
-                        ) : (
-                            <div className={`p-2 rounded-lg ${theme === 'light' ? 'bg-orange-50/50' : 'bg-orange-900/10'}`}>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase">Monthly Rent</span>
-                                    <span className={`font-bold text-base ${textColor}`}>{formatCurrency(calculated.totalMonthlyPayment)}</span>
-                                </div>
+                            <div className="flex gap-2 text-[9px] opacity-70 justify-end">
+                                <span>P&I: {formatCurrency(Math.round(calculated.monthlyPrincipalAndInterest))}</span>
+                                <span>Tax: {formatCurrency(Math.round(calculated.monthlyTax))}</span>
+                                <span>Ins: {formatCurrency(Math.round(calculated.monthlyInsurance))}</span>
+                                <span>Fees: {formatCurrency(Math.round(calculated.monthlyHOA + calculated.monthlyPMI))}</span>
                             </div>
-                        )
+                            
+                            {(scenario.rentalIncome || 0) > 0 && (
+                                <div className="border-t border-blue-200/30 mt-1 pt-2 flex justify-between items-center">
+                                    <span className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1">
+                                        {getNetPaymentTitle()} <Tooltip text={`Total Monthly Payment minus Rental Income`} />
+                                    </span>
+                                    <span className="text-lg font-bold">{formatCurrency(rNetMonthly)}</span>
+                                </div>
+                            )}
+                        </div>
                     )}
 
-                    {/* SEPARATOR */}
-                    <div className={`border-t border-dashed w-full ${theme==='light'?'border-gray-200':'border-gray-700'} -my-1`}></div>
-
-                    {/* Key Metrics Summary (Clean Hierarchy) */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className={`p-2.5 rounded-lg border flex flex-col justify-center ${theme === 'light' ? 'bg-gray-50 border-gray-100' : 'bg-white/5 border-white/10'}`}>
-                            <div className="flex items-center gap-1 mb-0.5">
-                                <span className="text-[10px] font-bold text-gray-500 uppercase">Net Cost</span>
-                                <Tooltip text="Net Out-of-Pocket minus Tax Refunds. This represents the final true cost after all cash benefits are realized." />
-                            </div>
-                            <span className={`font-bold text-lg leading-none ${calculated.netCost > 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
-                                {formatCurrency(calculated.netCost)}
-                            </span>
+                    {/* 1. TOTAL RETURN (Unified Profit) */}
+                    <div className={`border rounded-lg ${theme==='light'?'border-gray-200 bg-gray-50':'border-gray-700 bg-black/20'}`}>
+                        <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 rounded-t-lg">
+                            <TrendingUp size={12} className="text-emerald-500" />
+                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">TOTAL RETURN</span>
                         </div>
-
-                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                            <div className={`p-2.5 rounded-lg border flex flex-col justify-center ${theme === 'light' ? 'bg-gray-50 border-gray-100' : 'bg-white/5 border-white/10'}`}>
-                                <div className="text-[10px] font-bold text-gray-500 uppercase mb-0.5">Est. Value</div>
-                                <span className={`font-bold text-lg leading-none ${textColor}`}>
-                                    {formatCurrency(calculated.futureHomeValue)}
-                                </span>
-                            </div>
-                        )}
+                        <div className="p-2 space-y-1">
+                            {!scenario.isRentOnly && !scenario.isInvestmentOnly ? (
+                                <>
+                                    <BreakdownRow label="Appreciation" value={`+${formatCurrency(rAppreciation)}`} colorClass="text-emerald-500 font-bold" icon={<TrendingUp size={10} />} tooltip="Increase in home value over time" />
+                                    <BreakdownRow label="Principal Paid" value={`+${formatCurrency(rPrincipal)}`} colorClass="text-emerald-500 font-bold" icon={<PiggyBank size={10} />} tooltip="Amount of loan balance paid down (Equity)" />
+                                    {rTax > 0 && <BreakdownRow label="Mortgage Tax Refund" value={`+${formatCurrency(rTax)}`} colorClass="text-emerald-500 font-bold" icon={<Receipt size={10} />} tooltip="Tax savings from mortgage interest deduction (Interest + Property Tax)" />}
+                                    <BreakdownRow label={scenario.rentalIncomeTaxEnabled ? "Rental Income (Gross)" : "Rental Income"} value={`+${formatCurrency(rRent)}`} colorClass="text-emerald-500 font-bold" icon={<Building size={10} />} tooltip="Total rent collected before expenses" />
+                                    <BreakdownRow label="Rental Tax" value={`-${formatCurrency(rRentTax)}`} colorClass="text-red-500 font-bold" icon={<Scale size={10} />} tooltip="Tax paid on rental income" />
+                                    {(rRealInvGain > 0 && (scenario.isInvestmentOnly || scenario.isRentOnly)) && <BreakdownRow label="Investment Growth" value={`+${formatCurrency(rRealInvGain)}`} colorClass="text-emerald-500 font-bold" icon={<TrendingUp size={10} />} tooltip="Profit from invested idle cash or side portfolio" /> }
+                                    <BreakdownRow label={`Selling Costs (${scenario.sellingCostRate}%)`} value={`-${formatCurrency(rSellingCosts)}`} colorClass="text-red-500 font-bold" icon={<Tag size={10} />} tooltip="Agent fees and closing costs when selling" />
+                                    {rCapitalGainsTax > 0 && <BreakdownRow label={`Capital Gains Tax (${scenario.capitalGainsTaxRate ?? 20}%)`} value={`-${formatCurrency(rCapitalGainsTax)}`} colorClass="text-red-500 font-bold" icon={<Scale size={10} />} tooltip="Tax on profit if sold within 2 years" />}
+                                </>
+                            ) : (
+                                <>
+                                    <BreakdownRow label="Investment Growth" value={`+${formatCurrency(rRealInvGain)}`} colorClass="text-emerald-500 font-bold" icon={<TrendingUp size={10} />} tooltip="Profit from portfolio" />
+                                </>
+                            )}
+                        </div>
                     </div>
 
-                    {/* COLLAPSIBLE RESULTS SECTION (Clean Structure) */}
-                    <div className={`rounded-xl overflow-visible border mt-auto transition-all duration-300 ${theme === 'light' ? 'bg-green-50/50 border-green-100' : 'bg-green-900/10 border-green-900/30'}`}>
-                        
-                        {/* 1. NET GAIN ACCORDION */}
-                        <div>
-                            <div 
-                                onClick={() => toggleSection('gain')}
-                                className="flex justify-between items-center p-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors select-none group"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <div className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
-                                        {openSections.gain ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <div className="flex items-center gap-1">
-                                            <span className={`${labelColor} font-bold text-xs`}>Net Gain</span>
-                                            <Tooltip text="Total Wealth Increase: Equity Gains + Cash Flow (Rent/Refunds) + Investment Growth (Side Portfolio) - Selling Costs." />
-                                        </div>
-                                        {calculated.totalInvestedAmount > 0 && (
-                                            <div className="flex items-center gap-1 mt-0.5">
-                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                                    {calculated.effectiveAnnualReturn.toFixed(1)}% annual
-                                                </span>
-                                                <Tooltip text={`Annualized Return (CAGR) relative to Initial Capital Base of ${formatCurrency(calculated.initialCapitalBase)}.`} />
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                                <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">
-                                    {formatCurrency(displayTotalGain)}
-                                </span>
-                            </div>
-
-                            {/* Breakdown Body */}
-                            {openSections.gain && (
-                                <div className={`border-t border-dashed ${theme==='light'?'border-gray-200 bg-white/50':'border-gray-700 bg-black/20'} pb-2 pt-1 animate-in slide-in-from-top-1`}>
-                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                    {/* 2. TOTAL CASH OUT-OF-POCKET */}
+                    <div className={`border rounded-lg ${theme==='light'?'border-gray-200 bg-gray-50':'border-gray-700 bg-black/20'}`}>
+                         <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 rounded-t-lg">
+                            <Wallet size={12} className="text-gray-500" />
+                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">TOTAL CASH OUT-OF-POCKET</span>
+                        </div>
+                        <div className="p-2 space-y-1">
+                            {!scenario.isRentOnly ? (
+                                <>
+                                    {!scenario.isInvestmentOnly && (
                                         <>
-                                            <BreakdownRow label="Appreciation" value={`+${formatCurrency(rAppreciation)}`} icon={<TrendingUp size={10}/>} colorClass="text-emerald-500 dark:text-emerald-400" />
-                                            <BreakdownRow label="Principal Paid" value={`+${formatCurrency(rPrincipal)}`} icon={<Home size={10}/>} colorClass="text-emerald-500 dark:text-emerald-400" />
-                                            <BreakdownRow label="Tax Refunds" value={`+${formatCurrency(rTax)}`} icon={<Percent size={10}/>} colorClass="text-emerald-500 dark:text-emerald-400" />
-                                            {rRent > 0 && (
-                                                <BreakdownRow 
-                                                    label={scenario.rentalIncomeTaxEnabled ? "Rental Income (Gross)" : "Rental Income"} 
-                                                    value={`+${formatCurrency(rRent)}`} 
-                                                    icon={<DollarSign size={10}/>} 
-                                                    colorClass="text-emerald-500 dark:text-emerald-400" 
-                                                />
-                                            )}
-                                            {rRentTax > 0 && (
-                                                <BreakdownRow 
-                                                    label="Rental Tax" 
-                                                    value={`-${formatCurrency(rRentTax)}`} 
-                                                    icon={<DollarSign size={10}/>} 
-                                                    colorClass="text-red-500 dark:text-red-400" 
-                                                />
-                                            )}
+                                            <BreakdownRow label="Mortgage Payments" value={`-${formatCurrency(rTotalPaid)}`} colorClass="text-red-500 font-bold" icon={<CreditCard size={10} />} tooltip="Total PITI + Extra payments made" />
+                                            <BreakdownRow label="Property Costs" value={`(${formatCurrency(rPropertyCosts)})`} colorClass="text-gray-400 italic" icon={<Landmark size={10} />} tooltip="Included in Monthly Payments (PITI). Shown here for info only." />
                                         </>
                                     )}
-                                    {(rRealInvGain > 0 || scenario.isInvestmentOnly || scenario.isRentOnly) && (
-                                        <BreakdownRow 
-                                            label="Inv. Growth" 
-                                            value={`+${formatCurrency(rRealInvGain)}`} 
-                                            icon={<TrendingUp size={10}/>} 
-                                            colorClass="text-purple-500 dark:text-purple-400"
-                                            tooltip="Profit from investing your available cash (Initial Capital + Monthly Savings) at the specified return rate."
-                                        />
-                                    )}
-                                    {/* Interest Saved Row */}
-                                    {scenario.monthlyExtraPayment > 0 && calculated.interestSavedAtHorizon > 0 && (
-                                        <BreakdownRow 
-                                            label="Interest Saved" 
-                                            value={`+${formatCurrency(calculated.interestSavedAtHorizon)}`} 
-                                            icon={<Trophy size={10}/>} 
-                                            colorClass="text-emerald-500 dark:text-emerald-400"
-                                            tooltip="Interest saved to date by making extra principal payments."
-                                            bgClass="bg-yellow-50 dark:bg-yellow-900/10"
-                                        />
-                                    )}
-                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && rClosing > 0 && (
-                                        <BreakdownRow label="Closing Costs" value={`-${formatCurrency(rClosing)}`} icon={<DollarSign size={10}/>} colorClass="text-red-500 dark:text-red-400" />
-                                    )}
-                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && rSellingCosts > 0 && (
-                                        <BreakdownRow label="Selling Costs (6%)" value={`-${formatCurrency(rSellingCosts)}`} icon={<DollarSign size={10}/>} colorClass="text-red-500 dark:text-red-400" tooltip="Estimated agent fees and costs if you sell." />
-                                    )}
-                                </div>
+                                    <BreakdownRow label="Less: Rental Income" value={`+${formatCurrency(rRent)}`} colorClass="text-emerald-500 font-bold" icon={<Building size={10} />} tooltip="Rent collected offsets your costs" />
+                                    {rRentTax > 0 && <BreakdownRow label="Rental Tax Paid" value={`-${formatCurrency(rRentTax)}`} colorClass="text-red-500 font-bold" icon={<Scale size={10} />} tooltip="Tax liability from rental income" /> }
+                                    {!scenario.isInvestmentOnly && rDown > 0 && <BreakdownRow label="Down Payment" value={`-${formatCurrency(rDown)}`} colorClass="text-red-500 font-bold" icon={<Wallet size={10} />} tooltip="Initial cash for purchase" />}
+                                    {!scenario.isInvestmentOnly && rClosing > 0 && <BreakdownRow label="Closing Costs" value={`-${formatCurrency(rClosing)}`} colorClass="text-red-500 font-bold" icon={<Receipt size={10} />} tooltip="Initial fees for loan/purchase" />}
+                                    
+                                    {/* Add Investment Contributions row for Investment Only mode */}
+                                    {scenario.isInvestmentOnly && rInvContribution > 0 && <BreakdownRow label="Investment Contributions" value={`-${formatCurrency(rInvContribution)}`} colorClass="text-blue-500 font-bold" icon={<PiggyBank size={10} />} tooltip="Total Cash put into Side Investment Portfolio" />}
+                                </>
+                            ) : (
+                                <>
+                                    <BreakdownRow label="Rent Payments" value={`-${formatCurrency(rTotalPaid)}`} colorClass="text-red-500 font-bold" icon={<CreditCard size={10} />} />
+                                    {/* Rent mode also doesn't count side investment as housing cost */}
+                                </>
                             )}
+                            <div className="border-t border-dashed border-gray-600/20 pt-1 mt-1">
+                                 <div className="flex justify-between items-center text-[10px] pl-2 pr-2 font-bold">
+                                     <div className="flex items-center gap-2">
+                                        <Wallet size={10} className="text-gray-400" />
+                                        <span className="text-gray-500 dark:text-gray-400 uppercase">Total Out-of-Pocket</span>
+                                     </div>
+                                     <span className={theme==='light'?'text-gray-900':'text-white'}>{formatCurrency(calculated.totalInvestedAmount)}</span>
+                                 </div>
+                            </div>
                         </div>
+                    </div>
 
-                        {/* 2. NET OUT-OF-POCKET ACCORDION (Renamed from Total Invested) */}
-                        <div className={`border-t ${theme==='light'?'border-green-100':'border-gray-800/50'}`}>
-                            <div 
-                                onClick={() => toggleSection('invested')}
-                                className="flex justify-between items-center p-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors select-none group"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <div className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
-                                        {openSections.invested ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                    </div>
+                    {/* 3. FINAL RESULTS */}
+                    <div className={`border rounded-lg ${theme==='light'?'border-gray-200 bg-gray-50':'border-gray-700 bg-black/20'}`}>
+                        <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 rounded-t-lg">
+                            <Calculator size={12} className="text-gray-500" />
+                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">FINAL RESULTS</span>
+                        </div>
+                        <div className="p-3 space-y-1">
+                             <div className="flex justify-between items-center text-xs py-1">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-gray-500 dark:text-gray-400">Out-of-Pocket</span>
+                                    <Tooltip text="Net cash you paid (Payments + Upfront + Taxes - Rent)" />
+                                </div>
+                                <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(calculated.totalInvestedAmount)}</span>
+                             </div>
+                             
+                             <div className="flex justify-between items-center text-xs py-1 border-t border-dashed border-gray-600/20">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-gray-500 dark:text-gray-400">Profit</span>
+                                    <Tooltip text="Total Return: Gains + Income - Costs - Taxes" />
+                                </div>
+                                <span className="font-bold text-emerald-500">{formatCurrency(calculated.profit)}</span>
+                             </div>
+
+                             <div className="flex justify-between items-center text-xs py-1">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-gray-500 dark:text-gray-400">True Cost</span>
+                                    <Tooltip text="Net Cost = Out-of-Pocket - Cash After Sale. Represents the sunk cost of housing." />
+                                </div>
+                                <span className="font-bold text-red-500">{formatCurrency(calculated.netCost)}</span>
+                             </div>
+                             
+                             {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                             <>
+                                <div className="flex justify-between items-center text-xs py-1">
                                     <div className="flex items-center gap-1">
-                                        <span className={`${labelColor} text-[11px]`}>Net Out-of-Pocket</span>
-                                        <Tooltip text="Total Cash Spent (Payments + Down Pmt + Closing + Extra) - Gross Rent. This is your pre-tax cash flow." />
+                                        <span className="text-gray-500 dark:text-gray-400">Loan Balance at Sale</span>
+                                        <Tooltip text="Remaining mortgage balance to pay off" />
                                     </div>
+                                    <span className={`font-medium ${theme==='light'?'text-gray-700':'text-gray-300'}`}>{formatCurrency(rLoanBalance)}</span>
                                 </div>
-                                {/* REMOVED NEGATIVE SIGN HERE */}
-                                <span className="text-red-500 dark:text-red-400 font-semibold text-sm">
-                                    {formatCurrency(calculated.totalInvestedAmount)}
-                                </span>
-                            </div>
+                                <div className="flex justify-between items-center text-xs py-1">
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Equity at Sale</span>
+                                        <Tooltip text="Proceeds after paying off loan and selling costs (before Capital Gains Tax)" />
+                                    </div>
+                                    <span className={`font-medium ${theme==='light'?'text-gray-700':'text-gray-300'}`}>{formatCurrency(rEquityAtSale)}</span>
+                                </div>
+                             </>
+                             )}
 
-                            {/* Breakdown Body */}
-                            {openSections.invested && (
-                                <div className={`border-t border-dashed ${theme==='light'?'border-gray-200 bg-white/50':'border-gray-700 bg-black/20'} pb-2 pt-1 animate-in slide-in-from-top-1`}>
-                                     {!scenario.isRentOnly && !scenario.isInvestmentOnly ? (
-                                        <>
-                                            <BreakdownRow label="Payments" value={formatCurrency(calculated.totalPaid)} />
-                                            {rTotalInterest > 0 && <BreakdownRow label="Interest Portion" value={formatCurrency(rTotalInterest)} colorClass="text-red-400" />}
-                                            {scenario.downPayment > 0 && <BreakdownRow label="Down Pmt" value={formatCurrency(scenario.downPayment)} />}
-                                            {scenario.closingCosts > 0 && <BreakdownRow label="Closing Costs" value={formatCurrency(scenario.closingCosts)} />}
-                                            {calculated.totalExtraPrincipal > 0 && <BreakdownRow label="Extra Pay" value={formatCurrency(calculated.totalExtraPrincipal)} />}
-                                            {rRent > 0 && (
-                                                <BreakdownRow 
-                                                    label="Less: Rental Income" 
-                                                    value={`-${formatCurrency(rRent)}`} 
-                                                    colorClass="text-emerald-500 dark:text-emerald-400"
-                                                    tooltip="Gross rental income reduces your total out-of-pocket investment."
-                                                />
-                                            )}
-                                        </>
-                                     ) : scenario.isRentOnly ? (
-                                         <BreakdownRow label="Rent Paid" value={formatCurrency(calculated.totalPaid)} />
-                                     ) : (
-                                         <BreakdownRow label="Contributions" value={formatCurrency(calculated.totalInvestedAmount)} />
-                                     )}
+                             {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                             <div className="flex justify-between items-center text-xs py-1">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-gray-500 dark:text-gray-400">Cash After Sale</span>
+                                    <Tooltip text="Actual cash pocketed: Equity - Capital Gains Tax" />
                                 </div>
-                            )}
+                                <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(displayCashBack)}</span>
+                             </div>
+                             )}
+
+                             <div className="flex justify-between items-center text-xs py-1 border-t border-gray-600/20 mt-1 pt-2">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-gray-500 dark:text-gray-400 font-bold uppercase text-[10px]">Annual Return %</span>
+                                    <Tooltip text="Compound Annual Growth Rate (CAGR) on your capital" />
+                                </div>
+                                <span className="font-bold text-gray-400">{calculated.effectiveAnnualReturn.toFixed(1)}%</span>
+                             </div>
                         </div>
-
-                        {/* 3. CASH IF SOLD (Static Row) */}
-                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                            <div className={`flex justify-between items-center px-3 py-2 border-t ${theme==='light'?'border-green-100':'border-gray-800/50'}`}>
-                                <div className="flex items-center gap-2 pl-6">
-                                    <span className={`${labelColor} text-[11px]`}>Cash If Sold</span>
-                                    <Tooltip text={`The money you'd receive if you sold the home today.\n\nCalculation:\nHome Value - Remaining Loan Balance - Selling Costs`} />
-                                </div>
-                                <span className={`${textColor} text-sm font-medium`}>{formatCurrency(displayCashBack)}</span>
-                            </div>
-                        )}
                     </div>
 
                     {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
@@ -843,13 +732,11 @@ export const LoanCard: React.FC<LoanCardProps> = ({
         </>
       )}
 
-      {/* Rich Collapsed View (Click to Expand) */}
       {!isExpanded && (
         <div 
             className="w-full cursor-pointer group" 
             onClick={() => setIsExpanded(true)}
         >
-            {/* Header Row */}
             <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
                     <Eye size={18} className="text-gray-400 group-hover:text-brand-500 transition-colors" />
@@ -863,18 +750,32 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                     </span>
                 )}
             </div>
-
-            {/* Stats Row */}
             <div className={`text-xs mb-3 font-medium ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>
                 {getSummaryText()}
             </div>
-
-            {/* Total Gain Row */}
-            <div className="flex items-center gap-2 pt-2 border-t border-dashed border-gray-500/20">
-                <span className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>Total Gain:</span>
-                <span className={`text-xl font-extrabold tracking-tight ${isWinner ? (theme==='light' ? 'text-emerald-600' : 'text-emerald-400') : (theme === 'light' ? 'text-gray-700' : 'text-gray-200')}`}>
-                    {formatCurrency(displayTotalGain)}
-                </span>
+            
+            {/* COLLAPSED SUMMARY VIEW */}
+            <div className="pt-2 border-t border-dashed border-gray-500/20 space-y-2">
+                <div className="flex items-center justify-between">
+                    <span className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>Profit:</span>
+                    <span className={`text-sm font-extrabold tracking-tight ${isWinner ? (theme==='light' ? 'text-emerald-600' : 'text-emerald-400') : (theme === 'light' ? 'text-gray-700' : 'text-gray-200')}`}>
+                        {formatCurrency(displayTotalGain)}
+                    </span>
+                </div>
+                {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500 dark:text-gray-400">
+                        <div className="flex flex-col">
+                            <span className="uppercase font-bold opacity-70">Monthly PITI</span>
+                            <span className="font-semibold">{formatCurrency(rMonthlyPITI)}</span>
+                        </div>
+                        {(scenario.rentalIncome || 0) > 0 && (
+                            <div className="flex flex-col text-right">
+                                <span className="uppercase font-bold opacity-70">{getNetPaymentTitle()}</span>
+                                <span className="font-semibold">{formatCurrency(rNetMonthly)}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
       )}
