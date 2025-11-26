@@ -1,3 +1,4 @@
+
 export interface LoanScenario {
   id: string;
   name: string;
@@ -43,6 +44,7 @@ export interface LoanScenario {
   oneTimeExtraPayment: number;
   oneTimeExtraPaymentMonth: number;
   monthlyExtraPayment: number;
+  monthlyExtraPaymentFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually'; // New
   manualExtraPayments?: Record<number, number>; // New: Specific month overrides (Month Index -> Amount)
   
   // Income (Buy Mode)
@@ -62,8 +64,12 @@ export interface LoanScenario {
   investmentCapital?: number;
   lockInvestment: boolean; // New: Sync with global investment capital
   investmentMonthly?: number;
+  investmentContributionFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually'; // New
   investmentRate?: number;
   investMonthlySavings: boolean; // New: Toggle to enable/disable compounding of savings
+  
+  // Taxes
+  capitalGainsTaxRate: number; // Tax on short-term gains
 }
 
 export interface CalculatedLoan {
@@ -79,19 +85,21 @@ export interface CalculatedLoan {
   monthlyHOA: number;
   monthlyPMI: number;
   totalMonthlyPayment: number; // PITI + HOA
+  netMonthlyPayment: number; // New: PITI - Rent (Your Share)
   
   // Totals over Horizon
   totalPaid: number;
   totalInterest: number;
   totalEquityBuilt: number; // Principal Paid + Appreciation
   taxRefund: number;
-  netCost: number; // Total Paid - Equity - Refund
+  netCost: number; // True Cost
   
   // Wealth Components
   principalPaid: number; // Pure principal paydown (Forced Savings)
   totalAppreciation: number; // Market growth
   accumulatedRentalIncome: number; // Cash from rent
   totalRentalTax: number; // New: Explicitly track rental tax for display
+  totalPropertyCosts: number; // Tax + Ins + HOA + PMI accumulated
 
   // Snapshot at Horizon
   futureHomeValue: number;
@@ -101,7 +109,7 @@ export interface CalculatedLoan {
   investmentPortfolio: number; // Future Value of side cash
   
   // New metrics
-  profit: number; // Equity - Down Payment (Return on Capital logic)
+  profit: number; // Net Gain
   totalCashInvested: number; // Down + Closing + Extra + OneTime
   averageEquityPerMonth: number;
   totalExtraPrincipal: number;
@@ -116,9 +124,10 @@ export interface CalculatedLoan {
   // Analysis
   breakEvenMonths?: number;
   sellingCosts: number; // Explicit tracking
+  capitalGainsTax: number; // Explicit tracking
   
   // Detailed Cash Flow & ROI
-  totalInvestedAmount: number; // Explicit total cash put in (Net Monthly Out + Upfront)
+  totalInvestedAmount: number; // Out-of-Pocket
   initialCapitalBase: number; // New: The denominator used for ROI calc
   effectiveAnnualReturn: number; // ROI %
 
@@ -142,6 +151,7 @@ export interface AmortizationPoint {
   equity: number;
   accumulatedRentalIncome: number; // Cumulative Rental Income
   accumulatedRentalTax: number; // Cumulative Rental Tax
+  accumulatedPropertyCosts: number; // Cumulative Property Costs
 }
 
 export interface AnnualDataPoint {
