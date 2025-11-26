@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart, PiggyBank, CreditCard, Receipt, Building, Landmark, Wallet, Briefcase, Scale, Tag, LogOut, Clock, Calculator } from 'lucide-react';
+import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart, PiggyBank, CreditCard, Receipt, Building, Landmark, Wallet, Briefcase, Scale, Tag, LogOut, Clock, Calculator, Activity } from 'lucide-react';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
 import { Theme } from '../App';
@@ -249,7 +249,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const getNetPaymentTitle = () => {
       if (scenario.isInvestmentOnly) return "Net Contribution";
       if (scenario.isRentOnly) return "Net Monthly Savings";
-      return "Your Net Payment";
+      return "Net Monthly Payment";
   };
   
   // lockInvestment = false means Global (Blue), lockInvestment = true means Manual (Orange)
@@ -356,6 +356,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => handleChange('homeValue', v)} 
                                 min={100000} max={3000000} step={5000} theme={theme} 
                                 disabled={!scenario.lockFMV}
+                                className={!scenario.lockFMV ? 'opacity-60' : ''}
                             />
                             <SliderInput 
                                 label="Loan Amount" 
@@ -363,6 +364,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => handleChange('loanAmount', v)} 
                                 min={50000} max={2000000} step={5000} theme={theme}
                                 disabled={!scenario.lockLoan}
+                                className={!scenario.lockLoan ? 'opacity-60' : ''}
                             />
                             <SliderInput label="Interest Rate (%)" value={scenario.interestRate} onChange={v => handleChange('interestRate', v)} min={0} max={15} step={0.125} theme={theme} />
                             <SliderInput label="Years Left" value={scenario.yearsRemaining} onChange={v => handleChange('yearsRemaining', v)} min={0} max={40} step={1} theme={theme} />
@@ -412,6 +414,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                         onChange={v => handleChange('rentMonthly', v)} 
                                         min={500} max={10000} step={50} theme={theme} 
                                         disabled={!scenario.lockRent}
+                                        className={!scenario.lockRent ? 'opacity-60' : ''}
                                     />
                                     <SliderInput label="Annual Inc (%)" value={scenario.rentIncreasePerYear} onChange={v => handleChange('rentIncreasePerYear', v)} min={0} max={10} step={0.1} theme={theme} />
                                 </>
@@ -423,6 +426,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                         onChange={v => handleChange('rentalIncome', v)} 
                                         min={0} max={10000} step={50} theme={theme} 
                                         disabled={!scenario.lockRentIncome}
+                                        className={!scenario.lockRentIncome ? 'opacity-60' : ''}
                                     />
                                     <div className="flex items-center gap-2 mb-2 mt-1 justify-end">
                                         <label className={`text-[9px] flex items-center gap-1 ${labelColor} cursor-pointer`}>
@@ -480,6 +484,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => onUpdate(scenario.id, {investmentCapital: v})} 
                                 min={0} max={1000000} step={5000} theme={theme} 
                                 disabled={isGlobalInvestment}
+                                className={isGlobalInvestment ? 'opacity-60' : ''}
                             />
                             <SliderInput 
                                 label="Rate (% per annum)" 
@@ -487,6 +492,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => onUpdate(scenario.id, {investmentRate: v})} 
                                 min={0} max={15} step={0.1} theme={theme} 
                                 disabled={isGlobalInvestment}
+                                className={isGlobalInvestment ? 'opacity-60' : ''}
                             />
                             <div className="mb-2">
                                 <SliderInput 
@@ -495,6 +501,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     onChange={v => onUpdate(scenario.id, {investmentMonthly: v})} 
                                     min={0} max={10000} step={50} theme={theme} 
                                     disabled={isGlobalInvestment}
+                                    className={isGlobalInvestment ? 'opacity-60' : ''}
                                 />
                                 <div className="flex justify-end">
                                     <div className="w-1/2">
@@ -570,15 +577,6 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 <span>Ins: {formatCurrency(Math.round(calculated.monthlyInsurance))}</span>
                                 <span>Fees: {formatCurrency(Math.round(calculated.monthlyHOA + calculated.monthlyPMI))}</span>
                             </div>
-                            
-                            {(scenario.rentalIncome || 0) > 0 && (
-                                <div className="border-t border-blue-200/30 mt-1 pt-2 flex justify-between items-center">
-                                    <span className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1">
-                                        {getNetPaymentTitle()} <Tooltip text={`Total Monthly Payment minus Rental Income`} />
-                                    </span>
-                                    <span className="text-lg font-bold">{formatCurrency(rNetMonthly)}</span>
-                                </div>
-                            )}
                         </div>
                     )}
 
@@ -630,6 +628,19 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     
                                     {/* Add Investment Contributions row for Investment Only mode */}
                                     {scenario.isInvestmentOnly && rInvContribution > 0 && <BreakdownRow label="Investment Contributions" value={`-${formatCurrency(rInvContribution)}`} colorClass="text-blue-500 font-bold" icon={<PiggyBank size={10} />} tooltip="Total Cash put into Side Investment Portfolio" />}
+                                    
+                                    {/* Move Net Monthly Payment Here */}
+                                    {!scenario.isInvestmentOnly && (scenario.rentalIncome || 0) > 0 && (
+                                        <div className="border-t border-dashed border-gray-600/20 pt-1 mt-1">
+                                            <BreakdownRow 
+                                                label={getNetPaymentTitle()} 
+                                                value={`${formatCurrency(rNetMonthly)}/mo`} 
+                                                colorClass="text-indigo-500 font-bold" 
+                                                icon={<Clock size={10} className="text-indigo-400" />} 
+                                                tooltip="Total Monthly Payment minus Monthly Rent Received" 
+                                            />
+                                        </div>
+                                    )}
                                 </>
                             ) : (
                                 <>
