@@ -44,10 +44,10 @@ export const analyzeLoansWithGemini = async (
       }
       
       promptData += `\nSNAPSHOT at Year ${snapshotYear}:\n`;
-      promptData += `- Total PROFIT (Equity Gain): ${formatCurrency(c.profit)}\n`;
+      promptData += `- Total PROFIT (Wealth Generated): ${formatCurrency(c.profit)}\n`;
       promptData += `- Side Investment Portfolio: ${formatCurrency(c.investmentPortfolio)}\n`;
-      promptData += `- NET WORTH (Total Equity + Investment): ${formatCurrency(c.netWorth)}\n`;
-      promptData += `- NET COST (Total Paid - Recovered): ${formatCurrency(c.netCost)}\n`;
+      promptData += `- NET WORTH (Equity + Investments): ${formatCurrency(c.netWorth)}\n`;
+      promptData += `- NET COST (Total Outflow - Inflow): ${formatCurrency(c.netCost)}\n`;
       promptData += `- Remaining Balance: ${formatCurrency(c.remainingBalance)}\n`;
       promptData += `- Total Equity Built: ${formatCurrency(c.totalEquityBuilt)}\n\n`;
     });
@@ -61,7 +61,7 @@ export const analyzeLoansWithGemini = async (
       Please provide:
       1. A recommendation on which loan is best for maximizing NET WORTH at year ${snapshotYear}.
       2. Compare the strategy of investing the deposit vs putting it into the house (look at Side Investment Portfolio vs Equity Gain).
-      3. A comparison of NET COST.
+      3. A comparison of NET COST (Lower is better).
       4. Highlight any risks with adjustable or high-rate options if apparent.
       
       Keep the tone professional yet accessible. Use Markdown.
