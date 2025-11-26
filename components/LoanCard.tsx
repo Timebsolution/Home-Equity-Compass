@@ -1,7 +1,5 @@
-
-
 import React, { useState, useEffect } from 'react';
-import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle } from 'lucide-react';
+import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart } from 'lucide-react';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
 import { Theme } from '../App';
@@ -29,9 +27,10 @@ const SliderInput = ({
     step, 
     unit, 
     theme,
-    disabled = false
+    disabled = false,
+    className
 }: { 
-    label: string, 
+    label: string | React.ReactNode, 
     value: number, 
     onChange: (val: number) => void, 
     min: number, 
@@ -39,7 +38,8 @@ const SliderInput = ({
     step: number, 
     unit?: string, 
     theme: Theme,
-    disabled?: boolean
+    disabled?: boolean,
+    className?: string
 }) => {
     const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/20 border-gray-600 text-white';
     const labelColor = theme === 'light' ? 'text-gray-500' : 'text-gray-400';
@@ -77,9 +77,9 @@ const SliderInput = ({
     };
 
     return (
-        <div className={`mb-2 ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div className={`mb-2 ${disabled ? 'opacity-50 pointer-events-none' : ''} ${className || ''}`}>
             <div className="flex justify-between items-center mb-1">
-                <label className={`text-[10px] font-semibold ${labelColor}`}>{label}</label>
+                <label className={`text-[10px] font-semibold ${labelColor} flex items-center`}>{label}</label>
                 <div className="relative w-20">
                     <input 
                         type="text"
@@ -108,6 +108,66 @@ const SliderInput = ({
     );
 };
 
+// Robust Isolated Tooltip
+const Tooltip = ({ text }: { text: string }) => {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div 
+            className="relative inline-flex items-center ml-1 z-20"
+            onMouseEnter={(e) => {
+                e.stopPropagation();
+                setIsVisible(true);
+            }}
+            onMouseLeave={(e) => {
+                e.stopPropagation();
+                setIsVisible(false);
+            }}
+            onClick={(e) => e.stopPropagation()} // Critical: Prevent accordion toggle
+        >
+            <div className={`cursor-help transition-colors ${isVisible ? 'text-brand-500' : 'text-gray-400 hover:text-gray-500'}`}>
+                <Info size={12} />
+            </div>
+            {isVisible && (
+                <div 
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[280px] p-3 bg-gray-900/95 backdrop-blur border border-gray-700 text-gray-100 text-[11px] leading-relaxed rounded-lg shadow-2xl z-50 whitespace-normal animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
+                    style={{ minWidth: '180px' }}
+                >
+                    {text}
+                    {/* Arrow */}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900/95"></div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Breakdown Row for Collapsible Sections
+const BreakdownRow = ({ 
+    label, 
+    value, 
+    colorClass, 
+    icon, 
+    tooltip,
+    bgClass
+}: { 
+    label: string, 
+    value: string, 
+    colorClass?: string, 
+    icon?: React.ReactNode, 
+    tooltip?: string,
+    bgClass?: string
+}) => (
+    <div className={`flex justify-between items-center text-[10px] py-1 pl-4 pr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded transition-colors ${bgClass || ''}`}>
+        <div className="flex items-center gap-1.5">
+            {icon && <span className="opacity-70">{icon}</span>}
+            <span className="text-gray-500 dark:text-gray-400">{label}</span>
+            {tooltip && <Tooltip text={tooltip} />}
+        </div>
+        <span className={`font-mono font-medium ${colorClass || 'text-gray-700 dark:text-gray-300'}`}>{value}</span>
+    </div>
+);
+
 export const LoanCard: React.FC<LoanCardProps> = ({ 
   scenario, 
   calculated, 
@@ -123,6 +183,9 @@ export const LoanCard: React.FC<LoanCardProps> = ({
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+  
+  // Independent open states for accordions (allows multiple open)
+  const [openSections, setOpenSections] = useState({ gain: false, invested: false });
 
   const handleChange = (field: keyof LoanScenario, value: any) => {
     const numValue = parseFloat(value);
@@ -169,9 +232,9 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const badgeGlobal = "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300";
   const badgeManual = "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300";
 
-  // Dynamic layout based on expansion state
-  const containerPadding = isExpanded ? 'p-4' : 'py-3 px-4';
-  const containerLayout = isExpanded ? 'flex flex-col gap-2' : 'flex flex-row items-center justify-between';
+  // Dynamic layout based on expansion state - simplified to always be column for easier rich collapsed view
+  const containerPadding = 'p-4';
+  const containerLayout = 'flex flex-col gap-2';
 
   // Calculate discrete months for display to avoid confusion
   const simulatedMonths = Math.round(projectionYears * 12);
@@ -181,19 +244,30 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const rPrincipal = Math.round(calculated.principalPaid);
   const rTax = Math.round(calculated.taxRefund);
   const rRent = Math.round(calculated.accumulatedRentalIncome);
+  const rRentTax = Math.round(calculated.totalRentalTax || 0);
   const rAppreciation = Math.round(calculated.totalAppreciation);
-  const rInvGain = Math.round(calculated.investmentPortfolio - calculated.totalInvestmentContribution);
+  const rRealInvGain = Math.round(Math.max(0, calculated.investmentPortfolio - calculated.totalInvestmentContribution));
 
-  // 1. Total Gain (Wealth Generated: Amortized Equity + Cash Flow + Investment Growth)
-  // Use rounded components so Total Gain >= Money Returned
-  const displayTotalGain = rPrincipal + rTax + rRent + rAppreciation + rInvGain;
+  const rClosing = Math.round(scenario.closingCosts || 0);
+  const rInterestSaved = Math.round(calculated.interestSavedAtHorizon);
+  const rSellingCosts = Math.round(calculated.sellingCosts);
+  const rTotalInterest = Math.round(calculated.totalInterest);
+  
+  // 1. Total Gain (Wealth Generated)
+  const displayTotalGain = calculated.profit;
 
-  // 2. Your Money Returned (Hard Savings + Cash Benefits, excluding Appreciation/Investment)
-  // Represents strictly what the payment generated in recoverable value.
-  const displayMoneyReturned = rPrincipal + rTax + rRent;
-
-  // 3. Cash Back If Sell (Absolute Exit Equity)
+  // 2. Cash Back If Sell (Absolute Exit Equity)
   const displayCashBack = calculated.equity;
+
+  const toggleSection = (section: 'gain' | 'invested') => {
+      setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const getSummaryText = () => {
+    if (scenario.isInvestmentOnly) return `Investment Strategy · ${projectionYears.toFixed(1)} years`;
+    if (scenario.isRentOnly) return `Rent Growth · ${projectionYears.toFixed(1)} years (${simulatedMonths} mos)`;
+    return `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)} · ${projectionYears.toFixed(1)} years (${simulatedMonths} mos)`;
+  };
 
   return (
     <div 
@@ -245,23 +319,16 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                 {/* LEFT SIDE: Inputs / Meta / Controls */}
                 <div className="flex flex-col gap-2">
                     {/* Sub Header Info */}
-                    <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-0.5">
-                        {!scenario.isInvestmentOnly && (
-                            <div>
-                                {scenario.isRentOnly 
-                                    ? 'Rent Growth' 
-                                    : `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)}`
-                                } · after {projectionYears.toFixed(1)} years ({simulatedMonths} mos)
-                            </div>
-                        )}
-                        {scenario.isInvestmentOnly && (
-                            <div>Investment Strategy · {projectionYears.toFixed(1)} years</div>
-                        )}
-                        <div className="font-semibold text-brand-600 dark:text-brand-400">Total Gain: {formatCurrency(displayTotalGain)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+                        <div>{getSummaryText()}</div>
+                        <div className="mt-1">
+                            <div className="text-[10px] uppercase font-bold text-gray-400">Total Gain</div>
+                            <div className="text-xl font-extrabold text-brand-600 dark:text-brand-400 tracking-tight">{formatCurrency(displayTotalGain)}</div>
+                        </div>
                     </div>
 
                     {/* Mode Toggle */}
-                    <div className="flex justify-start">
+                    <div className="flex justify-start mt-1">
                         <button 
                             onClick={cycleMode}
                             className={`text-[10px] px-3 py-1 rounded-full border transition-colors flex items-center gap-2 font-medium ${
@@ -432,6 +499,11 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                             <SliderInput label="Insurance ($/yr)" value={scenario.homeInsurance} onChange={v => handleChange('homeInsurance', v)} min={0} max={10000} step={50} theme={theme} />
                             <SliderInput label="HOA ($/yr)" value={scenario.hoa} onChange={v => handleChange('hoa', v)} min={0} max={24000} step={50} theme={theme} />
                             <SliderInput label="PMI ($/yr)" value={scenario.pmi} onChange={v => handleChange('pmi', v)} min={0} max={10000} step={50} theme={theme} />
+                            
+                            <div className="pt-2 mt-2 border-t border-dashed border-gray-600/30">
+                                <SliderInput label="Selling Cost (%)" value={scenario.sellingCostRate ?? 6} onChange={v => handleChange('sellingCostRate', v)} min={0} max={10} step={0.5} theme={theme} />
+                            </div>
+
                             <SliderInput label="Marginal Tax Rate (%)" value={scenario.taxRefundRate} onChange={v => handleChange('taxRefundRate', v)} min={0} max={50} step={1} theme={theme} />
                             <SliderInput label="Home Value" value={scenario.homeValue} onChange={v => handleChange('homeValue', v)} min={100000} max={3000000} step={5000} theme={theme} />
                         </div>
@@ -447,8 +519,29 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 </button>
                             </div>
                             <SliderInput label="Down Payment" value={scenario.downPayment} onChange={v => handleChange('downPayment', v)} min={0} max={1000000} step={5000} theme={theme} />
+                            <SliderInput label="Closing Costs" value={scenario.closingCosts || 0} onChange={v => handleChange('closingCosts', v)} min={0} max={50000} step={100} theme={theme} />
                             <SliderInput label="One-Time Extra" value={scenario.oneTimeExtraPayment} onChange={v => handleChange('oneTimeExtraPayment', v)} min={0} max={500000} step={1000} theme={theme} />
                             
+                            {/* EXTRA MONTHLY PAYMENT INPUT */}
+                            <div className={`p-2 rounded-lg border border-dashed ${theme==='light'?'bg-blue-50 border-blue-200':'bg-blue-900/10 border-blue-800'}`}>
+                                <SliderInput 
+                                    label={
+                                        <div className="flex items-center gap-1">
+                                            <span>Extra Monthly Payment ($/mo)</span>
+                                            <Tooltip text="Additional principal payment each month. Goes directly to reducing your loan balance faster." />
+                                        </div>
+                                    }
+                                    value={scenario.monthlyExtraPayment} 
+                                    onChange={v => handleChange('monthlyExtraPayment', v)} 
+                                    min={0} max={5000} step={50} theme={theme} 
+                                />
+                                {scenario.monthlyExtraPayment > 0 && (
+                                    <div className="text-[10px] text-green-600 dark:text-green-400 font-semibold text-right -mt-1">
+                                        💡 Paying +{formatCurrency(scenario.monthlyExtraPayment)}/mo principal
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Rental Income Input */}
                             <div>
                                 <SliderInput label="Rental Income ($/mo)" value={scenario.rentalIncome || 0} onChange={v => handleChange('rentalIncome', v)} min={0} max={10000} step={50} theme={theme} />
@@ -477,6 +570,37 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     </div>
                                 )}
                             </div>
+                            
+                            {/* Investment Savings Toggle */}
+                            <div className="pt-2 border-t border-dashed border-gray-600/20">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-[9px] font-bold text-gray-400 uppercase">Cash Management</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                     <input 
+                                        type="checkbox" 
+                                        checked={scenario.investMonthlySavings !== false} 
+                                        onChange={(e) => handleChange('investMonthlySavings', e.target.checked)}
+                                        className="rounded text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
+                                        id={`invest-toggle-${scenario.id}`}
+                                     />
+                                     <label htmlFor={`invest-toggle-${scenario.id}`} className={`text-[10px] ${textColor} cursor-pointer flex items-center gap-1`}>
+                                        Grow Idle Cash?
+                                        <Tooltip text="If checked, monthly savings (compared to baseline) will be invested at the global return rate. If unchecked, cash sits idle." />
+                                     </label>
+                                </div>
+                            </div>
+                            
+                            {/* Show Investable Capital for Clarity if global investment is active */}
+                            {scenario.lockInvestment && (
+                                <div className="mt-2 pt-2 border-t border-dashed border-gray-600/20 text-[9px] flex justify-between items-center">
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-400">Available to Invest (Initial):</span>
+                                        <Tooltip text="Money you could invest elsewhere if you chose this option instead of paying down the loan." />
+                                    </div>
+                                    <span className="font-mono">{formatCurrency(Math.max(0, calculated.totalInvestmentContribution))}</span>
+                                </div>
+                            )}
                         </div>
                         )}
                     </div>
@@ -493,6 +617,16 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     <span className="text-[10px] font-bold text-gray-500 uppercase">Monthly PITI</span>
                                     <span className={`font-bold text-base ${textColor}`}>{formatCurrency(calculated.totalMonthlyPayment)}</span>
                                 </div>
+                                
+                                {/* Break-Even Analysis */}
+                                {calculated.breakEvenMonths && calculated.breakEvenMonths > 0 ? (
+                                    <div className="mb-1 text-right">
+                                        <span className="text-[9px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-1.5 py-0.5 rounded-full font-medium">
+                                            Break-even in {calculated.breakEvenMonths.toFixed(1)} mos
+                                        </span>
+                                    </div>
+                                ) : null}
+
                                 <div className="text-[9px] text-gray-400 flex flex-wrap justify-between gap-1">
                                     {/* Breakdown: If 2 loans, split P&I */}
                                     {scenario.hasSecondLoan ? (
@@ -521,71 +655,177 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                         )
                     )}
 
-                    {/* Detailed Metrics Grid - 2 Column Dense */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] leading-tight">
-                        <div className={`${labelColor}`}>Total Paid:</div>
-                        <div className="text-red-500 font-medium text-right">{formatCurrency(calculated.totalPaid)}</div>
-                        
-                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                            <>
-                                {/* CHANGE: Rename Total Equity to Principal Paid to be accurate */}
-                                <div className={`${labelColor}`}>Principal Paid:</div>
-                                <div className="text-green-500 font-medium text-right">+{formatCurrency(calculated.principalPaid)}</div>
-                                
-                                <div className={`${labelColor}`}>Avg Equity/Mo:</div>
-                                <div className="text-green-500 font-medium text-right">+{formatCurrency(calculated.averageEquityPerMonth)}</div>
-                                
-                                <div className={`${labelColor}`}>Tax Refund:</div>
-                                <div className="text-green-500 font-medium text-right">+{formatCurrency(calculated.taxRefund)}</div>
+                    {/* SEPARATOR */}
+                    <div className={`border-t border-dashed w-full ${theme==='light'?'border-gray-200':'border-gray-700'} -my-1`}></div>
 
-                                {scenario.downPayment > 0 && (
-                                    <>
-                                        <div className={`${labelColor}`}>Down Pmt:</div>
-                                        <div className="text-red-500 font-medium text-right">-{formatCurrency(scenario.downPayment)}</div>
-                                    </>
-                                )}
-                            </>
-                        )}
-
-                        <div className={`col-span-2 border-t pt-1 mt-1 ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}></div>
-
-                        <div className="font-bold">Net Cost:</div>
-                        <div className={`${calculated.netCost < 0 ? 'text-red-500' : 'text-green-500'} font-bold text-right`}>
-                            {formatCurrency(calculated.netCost)}
+                    {/* Key Metrics Summary (Clean Hierarchy) */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className={`p-2.5 rounded-lg border flex flex-col justify-center ${theme === 'light' ? 'bg-gray-50 border-gray-100' : 'bg-white/5 border-white/10'}`}>
+                            <div className="flex items-center gap-1 mb-0.5">
+                                <span className="text-[10px] font-bold text-gray-500 uppercase">Net Cost</span>
+                                <Tooltip text="Net Out-of-Pocket minus Tax Refunds. This represents the final true cost after all cash benefits are realized." />
+                            </div>
+                            <span className={`font-bold text-lg leading-none ${calculated.netCost > 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+                                {formatCurrency(calculated.netCost)}
+                            </span>
                         </div>
-                        
+
                         {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                             <>
-                                <div className={`${labelColor}`}>Est. Value:</div>
-                                <div className={`${textColor} text-right`}>{formatCurrency(calculated.futureHomeValue)}</div>
-                             </>
+                            <div className={`p-2.5 rounded-lg border flex flex-col justify-center ${theme === 'light' ? 'bg-gray-50 border-gray-100' : 'bg-white/5 border-white/10'}`}>
+                                <div className="text-[10px] font-bold text-gray-500 uppercase mb-0.5">Est. Value</div>
+                                <span className={`font-bold text-lg leading-none ${textColor}`}>
+                                    {formatCurrency(calculated.futureHomeValue)}
+                                </span>
+                            </div>
                         )}
                     </div>
 
-                    {/* CLEAN STRUCTURE RESULTS SECTION */}
-                    <div className={`p-2 rounded-lg border mt-auto ${theme === 'light' ? 'bg-green-50/30 border-green-100' : 'bg-green-900/10 border-green-900/30'}`}>
+                    {/* COLLAPSIBLE RESULTS SECTION (Clean Structure) */}
+                    <div className={`rounded-xl overflow-visible border mt-auto transition-all duration-300 ${theme === 'light' ? 'bg-green-50/50 border-green-100' : 'bg-green-900/10 border-green-900/30'}`}>
                         
-                        {/* 1. TOTAL GAIN (Wealth Generated during period) */}
-                        <div className="flex justify-between items-center mb-1">
-                            <span className={`${labelColor} font-bold text-xs`}>Total Gain</span>
-                            <span className="text-emerald-500 font-bold text-base">
-                                {formatCurrency(displayTotalGain)}
-                            </span>
+                        {/* 1. NET GAIN ACCORDION */}
+                        <div>
+                            <div 
+                                onClick={() => toggleSection('gain')}
+                                className="flex justify-between items-center p-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors select-none group"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <div className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
+                                        {openSections.gain ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <div className="flex items-center gap-1">
+                                            <span className={`${labelColor} font-bold text-xs`}>Net Gain</span>
+                                            <Tooltip text="Total Wealth Increase: Equity Gains + Cash Flow (Rent/Refunds) + Investment Growth (Side Portfolio) - Selling Costs." />
+                                        </div>
+                                        {calculated.totalInvestedAmount > 0 && (
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                    {calculated.effectiveAnnualReturn.toFixed(1)}% annual
+                                                </span>
+                                                <Tooltip text={`Annualized Return (CAGR) relative to Initial Capital Base of ${formatCurrency(calculated.initialCapitalBase)}.`} />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">
+                                    {formatCurrency(displayTotalGain)}
+                                </span>
+                            </div>
+
+                            {/* Breakdown Body */}
+                            {openSections.gain && (
+                                <div className={`border-t border-dashed ${theme==='light'?'border-gray-200 bg-white/50':'border-gray-700 bg-black/20'} pb-2 pt-1 animate-in slide-in-from-top-1`}>
+                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                                        <>
+                                            <BreakdownRow label="Appreciation" value={`+${formatCurrency(rAppreciation)}`} icon={<TrendingUp size={10}/>} colorClass="text-emerald-500 dark:text-emerald-400" />
+                                            <BreakdownRow label="Principal Paid" value={`+${formatCurrency(rPrincipal)}`} icon={<Home size={10}/>} colorClass="text-emerald-500 dark:text-emerald-400" />
+                                            <BreakdownRow label="Tax Refunds" value={`+${formatCurrency(rTax)}`} icon={<Percent size={10}/>} colorClass="text-emerald-500 dark:text-emerald-400" />
+                                            {rRent > 0 && (
+                                                <BreakdownRow 
+                                                    label={scenario.rentalIncomeTaxEnabled ? "Rental Income (Gross)" : "Rental Income"} 
+                                                    value={`+${formatCurrency(rRent)}`} 
+                                                    icon={<DollarSign size={10}/>} 
+                                                    colorClass="text-emerald-500 dark:text-emerald-400" 
+                                                />
+                                            )}
+                                            {rRentTax > 0 && (
+                                                <BreakdownRow 
+                                                    label="Rental Tax" 
+                                                    value={`-${formatCurrency(rRentTax)}`} 
+                                                    icon={<DollarSign size={10}/>} 
+                                                    colorClass="text-red-500 dark:text-red-400" 
+                                                />
+                                            )}
+                                        </>
+                                    )}
+                                    {(rRealInvGain > 0 || scenario.isInvestmentOnly || scenario.isRentOnly) && (
+                                        <BreakdownRow 
+                                            label="Inv. Growth" 
+                                            value={`+${formatCurrency(rRealInvGain)}`} 
+                                            icon={<TrendingUp size={10}/>} 
+                                            colorClass="text-purple-500 dark:text-purple-400"
+                                            tooltip="Profit from investing your available cash (Initial Capital + Monthly Savings) at the specified return rate."
+                                        />
+                                    )}
+                                    {/* Interest Saved Row */}
+                                    {scenario.monthlyExtraPayment > 0 && calculated.interestSavedAtHorizon > 0 && (
+                                        <BreakdownRow 
+                                            label="Interest Saved" 
+                                            value={`+${formatCurrency(calculated.interestSavedAtHorizon)}`} 
+                                            icon={<Trophy size={10}/>} 
+                                            colorClass="text-emerald-500 dark:text-emerald-400"
+                                            tooltip="Interest saved to date by making extra principal payments."
+                                            bgClass="bg-yellow-50 dark:bg-yellow-900/10"
+                                        />
+                                    )}
+                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && rClosing > 0 && (
+                                        <BreakdownRow label="Closing Costs" value={`-${formatCurrency(rClosing)}`} icon={<DollarSign size={10}/>} colorClass="text-red-500 dark:text-red-400" />
+                                    )}
+                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && rSellingCosts > 0 && (
+                                        <BreakdownRow label="Selling Costs (6%)" value={`-${formatCurrency(rSellingCosts)}`} icon={<DollarSign size={10}/>} colorClass="text-red-500 dark:text-red-400" tooltip="Estimated agent fees and costs if you sell." />
+                                    )}
+                                </div>
+                            )}
                         </div>
 
-                        {/* 2. YOUR MONEY RETURNED (Hard Savings + Cash Benefits) */}
-                        <div className="flex justify-between items-center text-[10px] mb-1">
-                            <span className={`${labelColor}`}>Your Money Returned</span>
-                            <span className={`${textColor} font-semibold`}>
-                                {formatCurrency(displayMoneyReturned)}
-                            </span>
+                        {/* 2. NET OUT-OF-POCKET ACCORDION (Renamed from Total Invested) */}
+                        <div className={`border-t ${theme==='light'?'border-green-100':'border-gray-800/50'}`}>
+                            <div 
+                                onClick={() => toggleSection('invested')}
+                                className="flex justify-between items-center p-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors select-none group"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <div className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
+                                        {openSections.invested ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className={`${labelColor} text-[11px]`}>Net Out-of-Pocket</span>
+                                        <Tooltip text="Total Cash Spent (Payments + Down Pmt + Closing + Extra) - Gross Rent. This is your pre-tax cash flow." />
+                                    </div>
+                                </div>
+                                {/* REMOVED NEGATIVE SIGN HERE */}
+                                <span className="text-red-500 dark:text-red-400 font-semibold text-sm">
+                                    {formatCurrency(calculated.totalInvestedAmount)}
+                                </span>
+                            </div>
+
+                            {/* Breakdown Body */}
+                            {openSections.invested && (
+                                <div className={`border-t border-dashed ${theme==='light'?'border-gray-200 bg-white/50':'border-gray-700 bg-black/20'} pb-2 pt-1 animate-in slide-in-from-top-1`}>
+                                     {!scenario.isRentOnly && !scenario.isInvestmentOnly ? (
+                                        <>
+                                            <BreakdownRow label="Payments" value={formatCurrency(calculated.totalPaid)} />
+                                            {rTotalInterest > 0 && <BreakdownRow label="Interest Portion" value={formatCurrency(rTotalInterest)} colorClass="text-red-400" />}
+                                            {scenario.downPayment > 0 && <BreakdownRow label="Down Pmt" value={formatCurrency(scenario.downPayment)} />}
+                                            {scenario.closingCosts > 0 && <BreakdownRow label="Closing Costs" value={formatCurrency(scenario.closingCosts)} />}
+                                            {calculated.totalExtraPrincipal > 0 && <BreakdownRow label="Extra Pay" value={formatCurrency(calculated.totalExtraPrincipal)} />}
+                                            {rRent > 0 && (
+                                                <BreakdownRow 
+                                                    label="Less: Rental Income" 
+                                                    value={`-${formatCurrency(rRent)}`} 
+                                                    colorClass="text-emerald-500 dark:text-emerald-400"
+                                                    tooltip="Gross rental income reduces your total out-of-pocket investment."
+                                                />
+                                            )}
+                                        </>
+                                     ) : scenario.isRentOnly ? (
+                                         <BreakdownRow label="Rent Paid" value={formatCurrency(calculated.totalPaid)} />
+                                     ) : (
+                                         <BreakdownRow label="Contributions" value={formatCurrency(calculated.totalInvestedAmount)} />
+                                     )}
+                                </div>
+                            )}
                         </div>
 
-                        {/* 3. CASH BACK IF SELL (Absolute Exit Equity) */}
+                        {/* 3. CASH IF SOLD (Static Row) */}
                         {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                            <div className="flex justify-between items-center text-[10px] pt-1 border-t border-dashed border-gray-600/20">
-                                <span className={`${labelColor}`}>Cash Back If Sell</span>
-                                <span className={`${textColor}`}>{formatCurrency(displayCashBack)}</span>
+                            <div className={`flex justify-between items-center px-3 py-2 border-t ${theme==='light'?'border-green-100':'border-gray-800/50'}`}>
+                                <div className="flex items-center gap-2 pl-6">
+                                    <span className={`${labelColor} text-[11px]`}>Cash If Sold</span>
+                                    <Tooltip text={`The money you'd receive if you sold the home today.\n\nCalculation:\nHome Value - Remaining Loan Balance - Selling Costs`} />
+                                </div>
+                                <span className={`${textColor} text-sm font-medium`}>{formatCurrency(displayCashBack)}</span>
                             </div>
                         )}
                     </div>
@@ -603,23 +843,40 @@ export const LoanCard: React.FC<LoanCardProps> = ({
         </>
       )}
 
-      {/* Collapsed View */}
+      {/* Rich Collapsed View (Click to Expand) */}
       {!isExpanded && (
-        <>
-            <div className="flex items-center gap-2">
-                 <span className={`font-bold ${theme === 'light' ? 'text-gray-700' : 'text-gray-200'}`}>
-                    {scenario.name}
-                 </span>
+        <div 
+            className="w-full cursor-pointer group" 
+            onClick={() => setIsExpanded(true)}
+        >
+            {/* Header Row */}
+            <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-2">
+                    <Eye size={18} className="text-gray-400 group-hover:text-brand-500 transition-colors" />
+                    <span className={`font-bold text-lg leading-none ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>
+                        {scenario.name}
+                    </span>
+                </div>
+                {isWinner && (
+                    <span className="bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 animate-in zoom-in">
+                        <Trophy size={10} /> WINNER
+                    </span>
+                )}
             </div>
-            
-            <button 
-                onClick={() => setIsExpanded(true)} 
-                className="text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 p-1"
-                title="Show Details"
-            >
-                <Eye size={20} />
-            </button>
-        </>
+
+            {/* Stats Row */}
+            <div className={`text-xs mb-3 font-medium ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>
+                {getSummaryText()}
+            </div>
+
+            {/* Total Gain Row */}
+            <div className="flex items-center gap-2 pt-2 border-t border-dashed border-gray-500/20">
+                <span className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>Total Gain:</span>
+                <span className={`text-xl font-extrabold tracking-tight ${isWinner ? (theme==='light' ? 'text-emerald-600' : 'text-emerald-400') : (theme === 'light' ? 'text-gray-700' : 'text-gray-200')}`}>
+                    {formatCurrency(displayTotalGain)}
+                </span>
+            </div>
+        </div>
       )}
     </div>
   );
