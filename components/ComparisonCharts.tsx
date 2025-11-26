@@ -1,3 +1,4 @@
+
 import React from 'react';
 import {
   BarChart,
@@ -29,13 +30,10 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       const c = calculatedData.find(cd => cd.id === s.id);
       if (!c) return { name: s.name };
       
-      // 1. Initial Capital Logic
-      // STRICT FIX: Only "Pure Investment" shows Initial Capital (Total Portfolio Value).
-      // Buy/Rent scenarios show 0 for Initial Capital so the bar represents "Wealth Generated" (Net Gain).
-      let initialCapital = 0;
-      if (s.isInvestmentOnly) {
-          initialCapital = c.totalInvestmentContribution;
-      }
+      // 1. Initial Capital Logic (Side Portfolio Base)
+      // Show Initial Capital for ANY scenario that has a side investment
+      // Previously was restricted, but users want to see the side portfolio base in all scenarios.
+      const initialCapital = c.totalInvestmentContribution;
 
       // 2. Principal Paid (Amortized Equity)
       const principalPaid = (!s.isRentOnly && !s.isInvestmentOnly) ? c.principalPaid : 0;
@@ -51,7 +49,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       const rawRentalIncome = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.accumulatedRentalIncome - (c.totalRentalTax || 0)) : 0;
       const rentalIncome = Math.max(0, rawRentalIncome);
       
-      // 6. Investment Profit (Side Portfolio Gain)
+      // 6. Investment Growth (Side Portfolio Gain)
       let investmentProfit = 0;
       if (s.isInvestmentOnly || s.isRentOnly) {
           investmentProfit = c.profit;
@@ -161,7 +159,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
               
               {/* STACK ORDER (Bottom to Top) */}
               
-              {/* 1. Initial Capital (Blue) - ONLY FOR PURE INVESTMENT */}
+              {/* 1. Initial Capital (Blue) - Side Portfolio Base */}
               <Bar dataKey="initialCapital" name="Initial Capital" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
               
               {/* 2. Principal Paid (Green) */}
@@ -170,8 +168,8 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
               {/* 3. Appreciation (Teal) */}
               <Bar dataKey="appreciation" name="Appreciation" stackId="a" fill="#14b8a6" radius={[0, 0, 0, 0]} />
               
-              {/* 4. Investment Profit (Purple) */}
-              <Bar dataKey="investmentProfit" name="Inv. Profit" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
+              {/* 4. Investment Growth (Purple) */}
+              <Bar dataKey="investmentProfit" name="Investment Growth" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
               
               {/* 5. Tax Refund (Cyan) */}
               <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#06b6d4" radius={[0, 0, 0, 0]} />
