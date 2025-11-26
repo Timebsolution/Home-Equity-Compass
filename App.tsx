@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { PlusCircle, Calculator, Clock, TrendingUp, Sun, Moon, PiggyBank, Link, ChevronUp, ChevronDown, Globe, Eye, EyeOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -15,7 +16,6 @@ const DEFAULT_GLOBAL_RENT = 1900;
 
 export type Theme = 'light' | 'night';
 
-// Helper Input that allows clearing (empty string) without forcing 0 immediately in the UI
 const SmartInput = ({ value, onChange, className, ...props }: { value: number, onChange: (v: number) => void, className?: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'>) => {
   const [localStr, setLocalStr] = useState(value.toString());
   const [focused, setFocused] = useState(false);
@@ -28,15 +28,10 @@ const SmartInput = ({ value, onChange, className, ...props }: { value: number, o
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value;
-
-    // Strip leading zero if it's not a decimal point (e.g. "05" -> "5")
-    // But allow "0." for decimals
     if (val.length > 1 && val.startsWith('0') && val[1] !== '.') {
         val = val.replace(/^0+/, ''); 
-        if (val === '') val = '0'; // Handle case where user typed 00 -> 0
+        if (val === '') val = '0'; 
     }
-    
-    // Allow empty or valid decimal number
     if (val === '' || /^[0-9]*\.?[0-9]*$/.test(val)) {
         setLocalStr(val);
         if (val === '') {
@@ -63,43 +58,33 @@ const SmartInput = ({ value, onChange, className, ...props }: { value: number, o
 };
 
 function App() {
-  // --- Theme State (Default Night which is now Gray-ish) ---
   const [theme, setTheme] = useState<Theme>('night');
-
-  // --- Global Controls ---
   const [globalFMV, setGlobalFMV] = useState<number>(DEFAULT_GLOBAL_FMV);
   const [globalLoan, setGlobalLoan] = useState<number>(DEFAULT_GLOBAL_LOAN);
   const [globalRent, setGlobalRent] = useState<number>(DEFAULT_GLOBAL_RENT);
   const [useGlobalRent, setUseGlobalRent] = useState<boolean>(true);
-
-  // --- Header Visibility State (Collapsible) ---
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
   
-  // Section Visibility - CLOSED BY DEFAULT
   const [isGlobalsOpen, setIsGlobalsOpen] = useState(false);
   const [isInvestOpen, setIsInvestOpen] = useState(false);
   const [isProjectionOpen, setIsProjectionOpen] = useState(false);
 
-  // --- Projection Settings ---
   const [horizonMode, setHorizonMode] = useState<'years' | 'months'>('months');
-  // Default to 24 months so charts have data points to show (annual data needs at least 1 year)
   const [horizonValue, setHorizonValue] = useState<number>(24);
   const [growthEnabled, setGrowthEnabled] = useState<boolean>(true);
   const [appreciationRate, setAppreciationRate] = useState<number>(4.0);
   
-  // --- Investment Calculator Settings ---
   const [globalCashInvestment, setGlobalCashInvestment] = useState<number>(100000); 
   const [globalMonthlyContribution, setGlobalMonthlyContribution] = useState<number>(0);
+  const [globalContributionFrequency, setGlobalContributionFrequency] = useState<string>('monthly');
   const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(4.0);
   const [modelSeparateInvestment, setModelSeparateInvestment] = useState<boolean>(true);
+  const [globalReinvest, setGlobalReinvest] = useState<boolean>(true); // New
 
   const [viewScheduleId, setViewScheduleId] = useState<string | null>(null);
-  
-  // Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importTargetId, setImportTargetId] = useState<string | null>(null); 
   
-  // --- Scenarios ---
   const [scenarios, setScenarios] = useState<LoanScenario[]>([
     {
       id: generateId(),
@@ -108,7 +93,7 @@ function App() {
       isRentOnly: false,
       homeValue: DEFAULT_GLOBAL_FMV,
       lockFMV: false,
-      loanAmount: DEFAULT_GLOBAL_LOAN, // Will match global
+      loanAmount: DEFAULT_GLOBAL_LOAN, 
       lockLoan: false,
       interestRate: 5.75,
       loanTermYears: 30,
@@ -121,21 +106,22 @@ function App() {
       secondLoanYearsRemaining: 30,
       secondLoanMonthsRemaining: 0,
       propertyTax: 3000,
-      propertyTaxRate: 0.6, // Derived
-      usePropertyTaxRate: false, // Default to manual $
+      propertyTaxRate: 0.6, 
+      usePropertyTaxRate: false, 
       homeInsurance: 1500,
       hoa: 0,
       pmi: 0,
-      taxRefundRate: 25,
+      taxRefundRate: 0, 
       downPayment: 0,
       closingCosts: 0,
       sellingCostRate: 6,
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 1,
       monthlyExtraPayment: 0,
+      monthlyExtraPaymentFrequency: 'monthly',
       manualExtraPayments: {},
       rentalIncome: DEFAULT_GLOBAL_RENT,
-      lockRentIncome: false, // Default to Global
+      lockRentIncome: false, 
       rentalIncomeTaxEnabled: true,
       rentalIncomeTaxRate: 20,
       rentMonthly: DEFAULT_GLOBAL_RENT,
@@ -143,8 +129,10 @@ function App() {
       rentIncreasePerYear: 3,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true,
-      investMonthlySavings: true
+      lockInvestment: false,
+      investmentContributionFrequency: 'monthly',
+      investMonthlySavings: true,
+      capitalGainsTaxRate: 20
     },
     {
       id: generateId(),
@@ -171,16 +159,17 @@ function App() {
       homeInsurance: 1500,
       hoa: 0,
       pmi: 0,
-      taxRefundRate: 25,
+      taxRefundRate: 0,
       downPayment: 100000, 
       closingCosts: 0,
       sellingCostRate: 6,
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 1,
       monthlyExtraPayment: 0,
+      monthlyExtraPaymentFrequency: 'monthly',
       manualExtraPayments: {},
       rentalIncome: DEFAULT_GLOBAL_RENT,
-      lockRentIncome: false, // Default to Global
+      lockRentIncome: false, 
       rentalIncomeTaxEnabled: true,
       rentalIncomeTaxRate: 20,
       rentMonthly: DEFAULT_GLOBAL_RENT,
@@ -188,8 +177,10 @@ function App() {
       rentIncreasePerYear: 3,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true,
-      investMonthlySavings: true
+      lockInvestment: false,
+      investmentContributionFrequency: 'monthly',
+      investMonthlySavings: true,
+      capitalGainsTaxRate: 20
     },
     {
       id: generateId(),
@@ -223,6 +214,7 @@ function App() {
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 0,
       monthlyExtraPayment: 0,
+      monthlyExtraPaymentFrequency: 'monthly',
       manualExtraPayments: {},
       rentalIncome: 0,
       lockRentIncome: true,
@@ -233,8 +225,10 @@ function App() {
       rentIncreasePerYear: 0,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true,
-      investMonthlySavings: true
+      lockInvestment: false,
+      investmentContributionFrequency: 'monthly',
+      investMonthlySavings: true,
+      capitalGainsTaxRate: 20
     },
     {
       id: generateId(),
@@ -269,6 +263,7 @@ function App() {
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 0,
       monthlyExtraPayment: 0,
+      monthlyExtraPaymentFrequency: 'monthly',
       manualExtraPayments: {},
       rentalIncome: 0,
       lockRentIncome: true,
@@ -282,45 +277,55 @@ function App() {
       investmentCapital: 100000,
       investmentMonthly: 0,
       investmentRate: 4,
-      lockInvestment: false, // Default to Global
-      investMonthlySavings: true
+      lockInvestment: false, 
+      investmentContributionFrequency: 'monthly',
+      investMonthlySavings: true,
+      capitalGainsTaxRate: 20
     }
   ]);
 
-  // --- Broadcast Globals to Unlocked Scenarios ---
   useEffect(() => {
     setScenarios(prev => prev.map(s => {
         let updates: Partial<LoanScenario> = {};
         if (!s.lockFMV && !s.isRentOnly && !s.isInvestmentOnly) updates.homeValue = globalFMV;
         if (!s.lockLoan && !s.isRentOnly && !s.isInvestmentOnly) updates.loanAmount = globalLoan;
-        
-        // Rent Mode Cost
         if (useGlobalRent && !s.lockRent) updates.rentMonthly = globalRent;
-        
-        // Buy Mode Rental Income (if unlocked and in Global mode)
         if (useGlobalRent && !s.lockRentIncome && !s.isRentOnly && !s.isInvestmentOnly) updates.rentalIncome = globalRent;
         
-        // Investment Capital & Rate (if unlocked and investment mode)
-        if (!s.lockInvestment && s.isInvestmentOnly) {
+        // Investment Sync Logic:
+        // If !lockInvestment (Global Mode), sync all investment fields from Global.
+        if (!s.lockInvestment) {
              updates.investmentCapital = globalCashInvestment;
              updates.investmentMonthly = globalMonthlyContribution;
              updates.investmentRate = investmentReturnRate;
+             updates.investmentContributionFrequency = globalContributionFrequency as any;
         }
 
         return Object.keys(updates).length > 0 ? { ...s, ...updates } : s;
     }));
-  }, [globalFMV, globalLoan, globalRent, useGlobalRent, globalCashInvestment, globalMonthlyContribution, investmentReturnRate]);
+  }, [globalFMV, globalLoan, globalRent, useGlobalRent, globalCashInvestment, globalMonthlyContribution, investmentReturnRate, globalContributionFrequency]);
 
   const effectiveProjectionYears = useMemo(() => {
       return horizonMode === 'years' ? horizonValue : horizonValue / 12;
   }, [horizonMode, horizonValue]);
 
+  // Convert Global Frequency to Monthly for calculations
+  const effectiveGlobalMonthlyContribution = useMemo(() => {
+      switch (globalContributionFrequency) {
+          case 'weekly': return globalMonthlyContribution * 52 / 12;
+          case 'biweekly': return globalMonthlyContribution * 26 / 12;
+          case 'monthly': return globalMonthlyContribution;
+          case 'semiannually': return globalMonthlyContribution * 2 / 12;
+          case 'annually': return globalMonthlyContribution / 12;
+          default: return globalMonthlyContribution;
+      }
+  }, [globalMonthlyContribution, globalContributionFrequency]);
+
   const calculatedData: CalculatedLoan[] = useMemo(() => {
     const investmentCashToPass = modelSeparateInvestment ? globalCashInvestment : 0;
-    const investmentMonthlyToPass = modelSeparateInvestment ? globalMonthlyContribution : 0;
+    const investmentMonthlyToPass = modelSeparateInvestment ? effectiveGlobalMonthlyContribution : 0;
     const effectiveAppreciation = growthEnabled ? appreciationRate : 0;
     
-    // First, calculate the baseline payment from the first scenario (assumed to be Current Loan / Baseline)
     let baselinePayment: number | undefined = undefined;
     if (scenarios.length > 0) {
         const tempBaseline = calculateLoan(
@@ -330,9 +335,9 @@ function App() {
             investmentReturnRate, 
             investmentCashToPass, 
             investmentMonthlyToPass,
-            undefined, // Baseline not needed for baseline itself
-            globalRent, // Pass globalRent
-            useGlobalRent // Pass flag
+            undefined, 
+            globalRent, 
+            useGlobalRent
         );
         baselinePayment = tempBaseline.totalMonthlyPayment;
     }
@@ -344,38 +349,40 @@ function App() {
         investmentReturnRate, 
         investmentCashToPass, 
         investmentMonthlyToPass,
-        baselinePayment, // Pass baseline for break-even calculation
-        globalRent, // NEW: Pass globalRent explicitly
-        useGlobalRent // NEW: Pass globalRent flag
+        baselinePayment, 
+        globalRent, 
+        useGlobalRent
     ));
-  }, [scenarios, effectiveProjectionYears, growthEnabled, appreciationRate, investmentReturnRate, globalCashInvestment, globalMonthlyContribution, modelSeparateInvestment, globalRent, useGlobalRent]);
+  }, [scenarios, effectiveProjectionYears, growthEnabled, appreciationRate, investmentReturnRate, globalCashInvestment, effectiveGlobalMonthlyContribution, modelSeparateInvestment, globalRent, useGlobalRent]);
 
   const winnerId = useMemo(() => {
       if (calculatedData.length === 0) return null;
       return calculatedData.reduce((prev, current) => (prev.profit > current.profit) ? prev : current).id;
   }, [calculatedData]);
 
-  // --- Handlers ---
-
   const updateScenario = (id: string, updates: Partial<LoanScenario>) => {
-    // If switching to Global mode (unlocking), immediately snap to global values
+    // If switching TO Global Mode (lock=false), sync immediately
     if (updates.lockInvestment === false) {
        updates.investmentCapital = globalCashInvestment;
        updates.investmentMonthly = globalMonthlyContribution;
        updates.investmentRate = investmentReturnRate;
+       updates.investmentContributionFrequency = globalContributionFrequency as any;
     }
-    
-    // Snap Rent Mode if unlocking
+    // If switching TO Manual Mode (lock=true), snapshot current global values into local state
+    if (updates.lockInvestment === true) {
+       updates.investmentCapital = globalCashInvestment;
+       updates.investmentMonthly = globalMonthlyContribution;
+       updates.investmentRate = investmentReturnRate;
+       updates.investmentContributionFrequency = globalContributionFrequency as any;
+    }
+
     if (updates.lockRent === false) {
         updates.rentMonthly = globalRent;
     }
-    
-    // Snap Rental Income if unlocking
     if (updates.lockRentIncome === false) {
         updates.rentalIncome = globalRent;
     }
 
-    // BI-DIRECTIONAL SYNC LOGIC (Optional, but kept for manually editing global card values if we decide to enable inputs)
     const scenario = scenarios.find(s => s.id === id);
     if (scenario) {
         if (updates.homeValue !== undefined && !scenario.lockFMV && !scenario.isRentOnly && !scenario.isInvestmentOnly) {
@@ -394,6 +401,8 @@ function App() {
 
     setScenarios(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   };
+  
+  // ... rest of App component (addScenario, etc.) remains same, just ensure imports match ...
 
   const addScenario = () => {
     if (scenarios.length >= 10) return;
@@ -408,13 +417,13 @@ function App() {
       lockLoan: false,
       lockFMV: false,
       lockRent: false,
-      lockRentIncome: false, // Default to Global
-      rentalIncome: useGlobalRent ? globalRent : 0, // Init with global
+      lockRentIncome: false, 
+      rentalIncome: useGlobalRent ? globalRent : 0,
       rentalIncomeTaxEnabled: false,
       rentalIncomeTaxRate: 20,
       isInvestmentOnly: false,
       isRentOnly: false,
-      lockInvestment: true,
+      lockInvestment: false,
       propertyTaxRate: 0.6,
       usePropertyTaxRate: false,
       hasSecondLoan: false,
@@ -426,7 +435,9 @@ function App() {
       closingCosts: 0,
       sellingCostRate: 6,
       investMonthlySavings: true,
-      manualExtraPayments: {}
+      manualExtraPayments: {},
+      capitalGainsTaxRate: 20,
+      monthlyExtraPaymentFrequency: 'monthly'
     }]);
   };
 
@@ -449,7 +460,6 @@ function App() {
         });
     } else {
         if (scenarios.length >= 10) return;
-        
         const newId = generateId();
         const newColor = COLORS[scenarios.length % COLORS.length];
         const loanAmt = extracted.homeValue ? extracted.homeValue * 0.8 : 400000; 
@@ -475,7 +485,7 @@ function App() {
           propertyTax: extracted.propertyTax || 3000,
           propertyTaxRate: 0.6,
           usePropertyTaxRate: false,
-          lockInvestment: true,
+          lockInvestment: false,
           homeInsurance: extracted.homeInsurance || 1200,
           hoa: extracted.hoa || 0,
           hasSecondLoan: false,
@@ -487,7 +497,9 @@ function App() {
           closingCosts: 0,
           sellingCostRate: 6,
           investMonthlySavings: true,
-          manualExtraPayments: {}
+          manualExtraPayments: {},
+          capitalGainsTaxRate: 20,
+          monthlyExtraPaymentFrequency: 'monthly'
         } as LoanScenario]);
     }
   };
@@ -496,10 +508,8 @@ function App() {
       if (scenarios.length >= 10) return;
       const original = scenarios.find(s => s.id === id);
       if (!original) return;
-
       const newId = generateId();
       const newColor = COLORS[scenarios.length % COLORS.length];
-
       setScenarios([...scenarios, {
           ...original,
           id: newId,
@@ -514,46 +524,59 @@ function App() {
 
   const selectedScenario = scenarios.find(s => s.id === viewScheduleId);
   const selectedCalculated = calculatedData.find(c => c.id === viewScheduleId);
-
-  // NIGHT THEME IS NOW NEUTRAL GRAY
-  const containerClass = theme === 'light' 
-    ? 'bg-slate-50 text-gray-900' 
-    : 'dark bg-neutral-900 text-gray-100';
-
+  const containerClass = theme === 'light' ? 'bg-slate-50 text-gray-900' : 'dark bg-neutral-900 text-gray-100';
   const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/30 border-gray-600 text-white';
 
-  // Investment Result Helper
   const calcInvestmentResult = useMemo(() => {
       const p = globalCashInvestment;
-      const pmt = globalMonthlyContribution;
+      const pmt = effectiveGlobalMonthlyContribution; 
       const r = investmentReturnRate / 100;
       const t = effectiveProjectionYears;
       const n = 12;
       
-      const fvLump = p * Math.pow(1 + r/n, n*t);
-      let fvSeries = 0;
-      if (pmt > 0) {
-          if (r === 0) fvSeries = pmt * n * t;
-          else fvSeries = pmt * (Math.pow(1 + r/n, n*t) - 1) / (r/n);
+      // If reinvesting, use compound interest. If not, use simple accumulation for interest (profit).
+      // Standard "Reinvest Income" behavior often implies simple interest withdrawal vs compound.
+      // But typically for a calculator, unchecked "Reinvest" means you get P + TotalContributions + SimpleInterest.
+      // And the "Profit" is that SimpleInterest.
+      
+      if (globalReinvest) {
+          const fvLump = p * Math.pow(1 + r/n, n*t);
+          let fvSeries = 0;
+          if (pmt > 0) {
+              if (r === 0) fvSeries = pmt * n * t;
+              else fvSeries = pmt * (Math.pow(1 + r/n, n*t) - 1) / (r/n);
+          }
+          return { 
+              fv: fvLump + fvSeries, 
+              profit: (fvLump + fvSeries) - (p + (pmt * n * t)) 
+          };
+      } else {
+          // Simple Interest: Interest = Principal * r * t + (PMT * totalMonths * r / 2 approx) or sum of interest
+          // More accurately: Annual interest on Principal = P * r. Total = P * r * t.
+          // Monthly contributions: 1st month earns r/12 * 1 month? No, usually annual rate simple.
+          // Let's stick to a basic Simple Interest approximation for the monthly series to be consistent.
+          // Interest on lump sum: P * r * t
+          // Interest on monthly series: Total Contrib * r * t / 2 (Rough average)
+          const simpleInterestLump = p * r * t;
+          const totalContrib = pmt * n * t;
+          const simpleInterestSeries = totalContrib * r * (t / 2); // Very rough approximation of average balance
+          
+          const totalSimpleInterest = simpleInterestLump + simpleInterestSeries;
+          return {
+              fv: p + totalContrib, // You take the interest out, so FV is just principal
+              profit: totalSimpleInterest
+          };
       }
-      return { 
-          fv: fvLump + fvSeries, 
-          profit: (fvLump + fvSeries) - (p + (pmt * n * t)) 
-      };
-  }, [globalCashInvestment, globalMonthlyContribution, investmentReturnRate, effectiveProjectionYears]);
+  }, [globalCashInvestment, effectiveGlobalMonthlyContribution, investmentReturnRate, effectiveProjectionYears, globalReinvest]);
 
   return (
     <div className={`min-h-screen pb-20 font-sans transition-colors duration-300 ${containerClass}`}>
-      
-      {/* HEADER - STICKY TOP BAR ONLY */}
       <header className={`border-b sticky top-0 z-30 transition-colors duration-300 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-neutral-900/90 border-gray-700 backdrop-blur-md'}`}>
         <div className="max-w-7xl mx-auto px-4 py-4">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-2">
                     <div className="bg-brand-600 text-white p-2 rounded-lg shadow-lg shadow-brand-500/30"><Calculator size={20} /></div>
                     <h1 className="text-xl font-bold tracking-tight">Home Equity Compass</h1>
-                    
-                    {/* Mobile Toggle Button */}
                     <button 
                       onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}
                       className={`ml-2 p-1.5 rounded-full transition-colors ${theme === 'light' ? 'hover:bg-gray-100 text-gray-500' : 'hover:bg-gray-700 text-gray-400'}`}
@@ -561,8 +584,6 @@ function App() {
                       {isHeaderExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                     </button>
                 </div>
-
-                {/* Theme Switcher */}
                 <div className={`flex p-1 rounded-lg border ${theme === 'light' ? 'bg-gray-100 border-gray-200' : 'bg-gray-800 border-gray-700'}`}>
                     <button onClick={() => setTheme('light')} className={`p-2 rounded-md flex items-center gap-2 text-xs font-medium transition-all ${theme === 'light' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
                         <Sun size={14} /> Day
@@ -575,12 +596,9 @@ function App() {
         </div>
       </header>
 
-      {/* EXPANDABLE CONTROLS - NOT STICKY (Fixes mobile scrolling issue) */}
       {isHeaderExpanded && (
         <div className={`border-b transition-colors duration-300 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-neutral-900 border-gray-700'}`}>
             <div className="max-w-7xl mx-auto px-4 py-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                
-                {/* 1. Global Market Data */}
                 <div className={`rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-700'}`}>
                      <button 
                         onClick={() => setIsGlobalsOpen(!isGlobalsOpen)}
@@ -596,7 +614,6 @@ function App() {
                      {isGlobalsOpen && (
                         <div className="px-5 pb-5 pt-0 border-t border-dashed border-transparent">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
-                                {/* FMV */}
                                 <div>
                                     <div className="flex justify-between mb-2">
                                         <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global FMV</label>
@@ -611,7 +628,6 @@ function App() {
                                     </div>
                                     <input type="range" min="100000" max="2000000" step="5000" value={globalFMV} onChange={e => setGlobalFMV(Number(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" />
                                 </div>
-                                {/* Loan */}
                                 <div>
                                     <div className="flex justify-between mb-2">
                                         <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Global Loan</label>
@@ -626,7 +642,6 @@ function App() {
                                     </div>
                                     <input type="range" min="50000" max="1500000" step="5000" value={globalLoan} onChange={e => setGlobalLoan(Number(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" />
                                 </div>
-                                {/* Rent */}
                                 <div>
                                     <div className="flex justify-between mb-2 items-center">
                                         <div className="flex items-center gap-2">
@@ -650,7 +665,6 @@ function App() {
                      )}
                 </div>
 
-                {/* 2. Investment Calculator */}
                 <div className={`rounded-xl border ${theme === 'light' ? 'bg-blue-50/50 border-blue-100' : 'bg-blue-900/10 border-blue-900/30'}`}>
                     <div 
                         className="flex items-center justify-between p-4 cursor-pointer"
@@ -661,7 +675,6 @@ function App() {
                                 <PiggyBank size={18} className="text-blue-600 dark:text-blue-400" />
                                 <span className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>Investment Calculator</span>
                             </div>
-
                             <div 
                                 className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400"
                                 onClick={(e) => e.stopPropagation()}
@@ -676,14 +689,11 @@ function App() {
                                 <label htmlFor="invest-active-check" className="cursor-pointer select-none">Active</label>
                             </div>
                         </div>
-
-                        {/* Collapsed Summary to show why Side Portfolio exists */}
                         {!isInvestOpen && modelSeparateInvestment && (
                              <div className="hidden md:block text-[10px] text-gray-400">
                                 Starting: <span className="text-gray-300 font-semibold">{formatCurrency(globalCashInvestment)}</span> · Rate: <span className="text-gray-300 font-semibold">{investmentReturnRate}%</span>
                              </div>
                         )}
-
                         <div className="text-gray-400">
                              {isInvestOpen ? <Eye size={16} className="text-brand-500" /> : <EyeOff size={16} className="text-gray-400" />}
                         </div>
@@ -691,14 +701,12 @@ function App() {
 
                     {isInvestOpen && (
                         <div className="px-5 pb-5 pt-0">
-                            {/* Investment Calculator Body */}
                             <div className="flex items-center gap-2 mb-4 text-xs text-gray-500 dark:text-gray-400">
                                 <span className="italic">Compound interest investment calculator with replenishment</span>
                             </div>
 
                             {modelSeparateInvestment && (
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                {/* LEFT COLUMN: INPUTS */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Starting Capital</label>
@@ -735,13 +743,18 @@ function App() {
                                         </div>
                                     </div>
                                     <div className="flex items-center mt-4">
-                                        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                                            <input type="checkbox" checked readOnly className="rounded text-brand-600" />
+                                        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={globalReinvest} 
+                                                onChange={e => setGlobalReinvest(e.target.checked)}
+                                                className="rounded text-brand-600 cursor-pointer" 
+                                            />
                                             Reinvest Income
                                         </label>
                                     </div>
                                     <div>
-                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Replenishment Amount</label>
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Additional Amount</label>
                                         <div className="relative">
                                             <span className="absolute left-2 top-1.5 text-xs text-gray-400">$</span>
                                             <SmartInput 
@@ -753,13 +766,19 @@ function App() {
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Frequency</label>
-                                        <select disabled className={`w-full py-1.5 text-sm border rounded opacity-70 ${inputClass}`}>
-                                            <option>Once a month</option>
+                                        <select 
+                                          value={globalContributionFrequency} 
+                                          onChange={e => setGlobalContributionFrequency(e.target.value)}
+                                          className={`w-full py-1.5 text-sm border rounded cursor-pointer ${inputClass}`}
+                                        >
+                                            <option value="weekly">Weekly</option>
+                                            <option value="biweekly">Every 2 weeks (Bi-weekly)</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="semiannually">Every 6 months (Semi-annually)</option>
+                                            <option value="annually">Annually</option>
                                         </select>
                                     </div>
                                 </div>
-
-                                {/* RIGHT COLUMN: RESULT */}
                                 <div className={`rounded-xl p-6 flex flex-col justify-center gap-4 ${theme === 'light' ? 'bg-white border border-gray-200' : 'bg-white/5 border border-gray-600'}`}>
                                     <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
                                         <span className="text-xs uppercase font-bold text-gray-500">Your Goal (FV)</span>
@@ -775,7 +794,7 @@ function App() {
                                     </div>
                                     <div className="flex justify-between items-center">
                                         <span className="text-xs uppercase font-bold text-gray-500">Total Replenished</span>
-                                        <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(globalMonthlyContribution * 12 * effectiveProjectionYears)}</span>
+                                        <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(effectiveGlobalMonthlyContribution * 12 * effectiveProjectionYears)}</span>
                                     </div>
                                 </div>
                             </div>
@@ -784,7 +803,6 @@ function App() {
                     )}
                 </div>
 
-                {/* 3. Horizon & Appreciation Controls */}
                 <div className={`rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-700'}`}>
                     <button 
                         onClick={() => setIsProjectionOpen(!isProjectionOpen)}
@@ -800,7 +818,6 @@ function App() {
                     {isProjectionOpen && (
                         <div className="px-5 pb-5 pt-0 border-t border-dashed border-transparent">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
-                                {/* Time Horizon */}
                                 <div>
                                     <div className="flex justify-between items-center mb-3">
                                         <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Time Horizon</label>
@@ -835,8 +852,6 @@ function App() {
                                         </span>
                                     </div>
                                 </div>
-
-                                {/* Home Appreciation */}
                                 <div>
                                     <div className="flex justify-between items-center mb-3">
                                         <label className={`text-xs font-bold uppercase ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>Home Appreciation Rate</label>
@@ -881,7 +896,6 @@ function App() {
                     )}
                 </div>
                     
-                {/* Hide Button Below */}
                 <div className="flex justify-center mt-6 pt-4 border-t border-dashed border-gray-200 dark:border-gray-700">
                     <button 
                         onClick={() => setIsHeaderExpanded(false)}
@@ -895,8 +909,6 @@ function App() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        
-        {/* Loan Cards Grid - SINGLE COLUMN STACK */}
         <div className="grid grid-cols-1 gap-6 mb-8 items-start max-w-3xl mx-auto">
           {scenarios.map((scenario) => {
             const calculated = calculatedData.find(c => c.id === scenario.id);
@@ -915,11 +927,16 @@ function App() {
                 theme={theme}
                 projectionYears={effectiveProjectionYears}
                 isWinner={scenario.id === winnerId}
+                globalInvestmentSettings={{
+                    globalCashInvestment,
+                    investmentReturnRate,
+                    globalMonthlyContribution,
+                    globalContributionFrequency
+                }}
               />
             );
           })}
           
-          {/* Add Scenario Button Card */}
           {scenarios.length < 10 && (
             <div className="grid grid-cols-2 gap-4 h-24">
                 <button 
@@ -968,7 +985,7 @@ function App() {
           onClose={() => setViewScheduleId(null)}
           scenario={selectedScenario}
           calculated={selectedCalculated}
-          onUpdate={updateScenario} // Pass update handler for manual extra payments
+          onUpdate={updateScenario} 
           theme={theme}
         />
       )}
