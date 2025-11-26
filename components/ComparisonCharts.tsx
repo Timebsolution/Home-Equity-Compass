@@ -1,4 +1,3 @@
-
 import React from 'react';
 import {
   BarChart,
@@ -30,10 +29,13 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       const c = calculatedData.find(cd => cd.id === s.id);
       if (!c) return { name: s.name };
       
-      // 1. Initial Capital (Down Payment + Investment Capital)
-      const downPayment = (!s.isRentOnly && !s.isInvestmentOnly) ? s.downPayment : 0;
-      const sideCapital = c.totalInvestmentContribution;
-      const initialCapital = downPayment + sideCapital;
+      // 1. Initial Capital Logic
+      // STRICT FIX: Only "Pure Investment" shows Initial Capital (Total Portfolio Value).
+      // Buy/Rent scenarios show 0 for Initial Capital so the bar represents "Wealth Generated" (Net Gain).
+      let initialCapital = 0;
+      if (s.isInvestmentOnly) {
+          initialCapital = c.totalInvestmentContribution;
+      }
 
       // 2. Principal Paid (Amortized Equity)
       const principalPaid = (!s.isRentOnly && !s.isInvestmentOnly) ? c.principalPaid : 0;
@@ -41,10 +43,15 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       // 3. Appreciation (Market Gain)
       const appreciation = (!s.isRentOnly && !s.isInvestmentOnly) ? c.totalAppreciation : 0;
 
-      // 4. Tax Refunds & Cash Flow (Cash Benefit)
-      const taxRefund = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.taxRefund + c.accumulatedRentalIncome) : 0;
+      // 4. Tax Refunds (Strict Tax Refund Only)
+      const taxRefund = (!s.isRentOnly && !s.isInvestmentOnly) ? c.taxRefund : 0;
       
-      // 5. Investment Profit (Side Portfolio Gain)
+      // 5. Rental Income (Net of Tax)
+      // Safety: Ensure we don't display negative bars if tax calc is weird, though it shouldn't be with the main fix.
+      const rawRentalIncome = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.accumulatedRentalIncome - (c.totalRentalTax || 0)) : 0;
+      const rentalIncome = Math.max(0, rawRentalIncome);
+      
+      // 6. Investment Profit (Side Portfolio Gain)
       let investmentProfit = 0;
       if (s.isInvestmentOnly || s.isRentOnly) {
           investmentProfit = c.profit;
@@ -59,9 +66,10 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
           principalPaid,
           appreciation,
           taxRefund,
+          rentalIncome,
           investmentProfit,
           // Helper for total top label if needed
-          total: initialCapital + principalPaid + appreciation + taxRefund + investmentProfit
+          total: initialCapital + principalPaid + appreciation + taxRefund + rentalIncome + investmentProfit
       };
   });
 
@@ -153,20 +161,23 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
               
               {/* STACK ORDER (Bottom to Top) */}
               
-              {/* 1. Initial Capital (Blue/Purple) */}
-              <Bar dataKey="initialCapital" name="Initial Capital" stackId="a" fill="#818cf8" radius={[0, 0, 0, 0]} />
+              {/* 1. Initial Capital (Blue) - ONLY FOR PURE INVESTMENT */}
+              <Bar dataKey="initialCapital" name="Initial Capital" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
               
               {/* 2. Principal Paid (Green) */}
               <Bar dataKey="principalPaid" name="Principal Paid" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
               
-              {/* 3. Appreciation (Dark Green) */}
-              <Bar dataKey="appreciation" name="Appreciation" stackId="a" fill="#15803d" radius={[0, 0, 0, 0]} />
+              {/* 3. Appreciation (Teal) */}
+              <Bar dataKey="appreciation" name="Appreciation" stackId="a" fill="#14b8a6" radius={[0, 0, 0, 0]} />
               
               {/* 4. Investment Profit (Purple) */}
-              <Bar dataKey="investmentProfit" name="Inv. Profit" stackId="a" fill="#c084fc" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="investmentProfit" name="Inv. Profit" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
               
-              {/* 5. Tax Refund (Teal - Top) */}
-              <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
+              {/* 5. Tax Refund (Cyan) */}
+              <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#06b6d4" radius={[0, 0, 0, 0]} />
+              
+              {/* 6. Rental Income (Gold - Top) */}
+              <Bar dataKey="rentalIncome" name="Rental Income (Net)" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
               
             </BarChart>
           </ResponsiveContainer>
