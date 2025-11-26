@@ -9,9 +9,9 @@ import { extractPropertyData } from './services/geminiService';
 import { AmortizationModal } from './components/AmortizationModal';
 import { ImportModal } from './components/ImportModal';
 
-const DEFAULT_GLOBAL_FMV = 500000;
-const DEFAULT_GLOBAL_LOAN = 500000;
-const DEFAULT_GLOBAL_RENT = 2000;
+const DEFAULT_GLOBAL_FMV = 467000;
+const DEFAULT_GLOBAL_LOAN = 467000;
+const DEFAULT_GLOBAL_RENT = 1900;
 
 export type Theme = 'light' | 'night';
 
@@ -84,13 +84,13 @@ function App() {
   const [horizonMode, setHorizonMode] = useState<'years' | 'months'>('months');
   // Default to 24 months so charts have data points to show (annual data needs at least 1 year)
   const [horizonValue, setHorizonValue] = useState<number>(24);
-  const [growthEnabled, setGrowthEnabled] = useState<boolean>(false);
+  const [growthEnabled, setGrowthEnabled] = useState<boolean>(true);
   const [appreciationRate, setAppreciationRate] = useState<number>(4.0);
   
   // --- Investment Calculator Settings ---
   const [globalCashInvestment, setGlobalCashInvestment] = useState<number>(100000); 
   const [globalMonthlyContribution, setGlobalMonthlyContribution] = useState<number>(0);
-  const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(5.0);
+  const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(4.0);
   const [modelSeparateInvestment, setModelSeparateInvestment] = useState<boolean>(true);
 
   const [viewScheduleId, setViewScheduleId] = useState<string | null>(null);
@@ -108,7 +108,7 @@ function App() {
       isRentOnly: false,
       homeValue: DEFAULT_GLOBAL_FMV,
       lockFMV: false,
-      loanAmount: DEFAULT_GLOBAL_LOAN, // Will match global 500k
+      loanAmount: DEFAULT_GLOBAL_LOAN, // Will match global
       lockLoan: false,
       interestRate: 5.75,
       loanTermYears: 30,
@@ -121,26 +121,30 @@ function App() {
       secondLoanYearsRemaining: 30,
       secondLoanMonthsRemaining: 0,
       propertyTax: 3000,
-      propertyTaxRate: 0.6, // Derived from 3000/500000
+      propertyTaxRate: 0.6, // Derived
       usePropertyTaxRate: false, // Default to manual $
       homeInsurance: 1500,
       hoa: 0,
       pmi: 0,
       taxRefundRate: 25,
       downPayment: 0,
+      closingCosts: 0,
+      sellingCostRate: 6,
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 1,
       monthlyExtraPayment: 0,
-      rentalIncome: 0,
-      lockRentIncome: true, // Manual by default (usually 0)
-      rentalIncomeTaxEnabled: false,
+      manualExtraPayments: {},
+      rentalIncome: DEFAULT_GLOBAL_RENT,
+      lockRentIncome: false, // Default to Global
+      rentalIncomeTaxEnabled: true,
       rentalIncomeTaxRate: 20,
       rentMonthly: DEFAULT_GLOBAL_RENT,
       lockRent: false,
       rentIncreasePerYear: 3,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true
+      lockInvestment: true,
+      investMonthlySavings: true
     },
     {
       id: generateId(),
@@ -149,7 +153,7 @@ function App() {
       isRentOnly: false,
       homeValue: DEFAULT_GLOBAL_FMV,
       lockFMV: false,
-      loanAmount: 400000, // 500k - 100k down
+      loanAmount: 400000, 
       lockLoan: true, 
       interestRate: 4.99,
       loanTermYears: 30,
@@ -169,19 +173,23 @@ function App() {
       pmi: 0,
       taxRefundRate: 25,
       downPayment: 100000, 
+      closingCosts: 0,
+      sellingCostRate: 6,
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 1,
       monthlyExtraPayment: 0,
-      rentalIncome: 0,
-      lockRentIncome: true,
-      rentalIncomeTaxEnabled: false,
+      manualExtraPayments: {},
+      rentalIncome: DEFAULT_GLOBAL_RENT,
+      lockRentIncome: false, // Default to Global
+      rentalIncomeTaxEnabled: true,
       rentalIncomeTaxRate: 20,
       rentMonthly: DEFAULT_GLOBAL_RENT,
       lockRent: false,
       rentIncreasePerYear: 3,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true
+      lockInvestment: true,
+      investMonthlySavings: true
     },
     {
       id: generateId(),
@@ -210,19 +218,23 @@ function App() {
       pmi: 0,
       taxRefundRate: 0,
       downPayment: 0,
+      closingCosts: 0,
+      sellingCostRate: 0,
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 0,
       monthlyExtraPayment: 0,
+      manualExtraPayments: {},
       rentalIncome: 0,
       lockRentIncome: true,
       rentalIncomeTaxEnabled: false,
       rentalIncomeTaxRate: 20,
       rentMonthly: 1500,
       lockRent: true,
-      rentIncreasePerYear: 3,
+      rentIncreasePerYear: 0,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true
+      lockInvestment: true,
+      investMonthlySavings: true
     },
     {
       id: generateId(),
@@ -252,9 +264,12 @@ function App() {
       pmi: 0,
       taxRefundRate: 0,
       downPayment: 0,
+      closingCosts: 0,
+      sellingCostRate: 0,
       oneTimeExtraPayment: 0,
       oneTimeExtraPaymentMonth: 0,
       monthlyExtraPayment: 0,
+      manualExtraPayments: {},
       rentalIncome: 0,
       lockRentIncome: true,
       rentalIncomeTaxEnabled: false,
@@ -266,8 +281,9 @@ function App() {
       rentTaxRate: 0,
       investmentCapital: 100000,
       investmentMonthly: 0,
-      investmentRate: 5,
-      lockInvestment: false // Default to Global
+      investmentRate: 4,
+      lockInvestment: false, // Default to Global
+      investMonthlySavings: true
     }
   ]);
 
@@ -304,19 +320,39 @@ function App() {
     const investmentMonthlyToPass = modelSeparateInvestment ? globalMonthlyContribution : 0;
     const effectiveAppreciation = growthEnabled ? appreciationRate : 0;
     
+    // First, calculate the baseline payment from the first scenario (assumed to be Current Loan / Baseline)
+    let baselinePayment: number | undefined = undefined;
+    if (scenarios.length > 0) {
+        const tempBaseline = calculateLoan(
+            scenarios[0], 
+            effectiveProjectionYears, 
+            effectiveAppreciation, 
+            investmentReturnRate, 
+            investmentCashToPass, 
+            investmentMonthlyToPass,
+            undefined, // Baseline not needed for baseline itself
+            globalRent, // Pass globalRent
+            useGlobalRent // Pass flag
+        );
+        baselinePayment = tempBaseline.totalMonthlyPayment;
+    }
+
     return scenarios.map(s => calculateLoan(
         s, 
         effectiveProjectionYears, 
         effectiveAppreciation, 
         investmentReturnRate, 
         investmentCashToPass, 
-        investmentMonthlyToPass
+        investmentMonthlyToPass,
+        baselinePayment, // Pass baseline for break-even calculation
+        globalRent, // NEW: Pass globalRent explicitly
+        useGlobalRent // NEW: Pass globalRent flag
     ));
-  }, [scenarios, effectiveProjectionYears, growthEnabled, appreciationRate, investmentReturnRate, globalCashInvestment, globalMonthlyContribution, modelSeparateInvestment]);
+  }, [scenarios, effectiveProjectionYears, growthEnabled, appreciationRate, investmentReturnRate, globalCashInvestment, globalMonthlyContribution, modelSeparateInvestment, globalRent, useGlobalRent]);
 
   const winnerId = useMemo(() => {
       if (calculatedData.length === 0) return null;
-      return calculatedData.reduce((prev, current) => (prev.netWorth > current.netWorth) ? prev : current).id;
+      return calculatedData.reduce((prev, current) => (prev.profit > current.profit) ? prev : current).id;
   }, [calculatedData]);
 
   // --- Handlers ---
@@ -327,6 +363,16 @@ function App() {
        updates.investmentCapital = globalCashInvestment;
        updates.investmentMonthly = globalMonthlyContribution;
        updates.investmentRate = investmentReturnRate;
+    }
+    
+    // Snap Rent Mode if unlocking
+    if (updates.lockRent === false) {
+        updates.rentMonthly = globalRent;
+    }
+    
+    // Snap Rental Income if unlocking
+    if (updates.lockRentIncome === false) {
+        updates.rentalIncome = globalRent;
     }
 
     // BI-DIRECTIONAL SYNC LOGIC (Optional, but kept for manually editing global card values if we decide to enable inputs)
@@ -362,8 +408,8 @@ function App() {
       lockLoan: false,
       lockFMV: false,
       lockRent: false,
-      lockRentIncome: true, // Default new scenarios to manual rent income (0)
-      rentalIncome: 0,
+      lockRentIncome: false, // Default to Global
+      rentalIncome: useGlobalRent ? globalRent : 0, // Init with global
       rentalIncomeTaxEnabled: false,
       rentalIncomeTaxRate: 20,
       isInvestmentOnly: false,
@@ -376,7 +422,11 @@ function App() {
       secondLoanInterestRate: 3.0,
       secondLoanTermYears: 30,
       secondLoanYearsRemaining: 30,
-      secondLoanMonthsRemaining: 0
+      secondLoanMonthsRemaining: 0,
+      closingCosts: 0,
+      sellingCostRate: 6,
+      investMonthlySavings: true,
+      manualExtraPayments: {}
     }]);
   };
 
@@ -412,8 +462,8 @@ function App() {
           lockLoan: true,
           lockFMV: true,
           lockRent: false,
-          lockRentIncome: true,
-          rentalIncome: 0,
+          lockRentIncome: false,
+          rentalIncome: useGlobalRent ? globalRent : 0,
           rentalIncomeTaxEnabled: false,
           rentalIncomeTaxRate: 20,
           isInvestmentOnly: false,
@@ -433,7 +483,11 @@ function App() {
           secondLoanInterestRate: 3.0,
           secondLoanTermYears: 30,
           secondLoanYearsRemaining: 30,
-          secondLoanMonthsRemaining: 0
+          secondLoanMonthsRemaining: 0,
+          closingCosts: 0,
+          sellingCostRate: 6,
+          investMonthlySavings: true,
+          manualExtraPayments: {}
         } as LoanScenario]);
     }
   };
@@ -914,6 +968,7 @@ function App() {
           onClose={() => setViewScheduleId(null)}
           scenario={selectedScenario}
           calculated={selectedCalculated}
+          onUpdate={updateScenario} // Pass update handler for manual extra payments
           theme={theme}
         />
       )}
