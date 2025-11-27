@@ -23,56 +23,89 @@ interface ComparisonChartsProps {
   theme: Theme;
 }
 
+const CustomTooltip = ({ active, payload, label, theme }: any) => {
+  if (active && payload && payload.length) {
+    const isDark = theme !== 'light';
+    const bgClass = isDark ? 'bg-neutral-900 border-gray-700 text-gray-100' : 'bg-white border-gray-200 text-gray-900';
+    
+    // Filter out zero values to clean up the tooltip
+    const items = payload.filter((p: any) => Math.abs(p.value) > 0);
+    const total = items.reduce((sum: number, item: any) => sum + item.value, 0);
+
+    if (items.length === 0) return null;
+
+    return (
+      <div className={`p-3 rounded-xl shadow-2xl border ${bgClass} text-xs z-50 min-w-[200px]`}>
+        <p className="font-bold mb-2 text-sm border-b border-dashed border-gray-400/30 pb-1">{label}</p>
+        <div className="space-y-1.5">
+          {items.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center gap-3 justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: entry.color }} />
+                <span className="opacity-80 font-medium">{entry.name}</span>
+              </div>
+              <span className="font-mono font-bold">{formatCurrency(entry.value)}</span>
+            </div>
+          ))}
+        </div>
+        {/* Total Summary Line */}
+        <div className="mt-2 pt-2 border-t border-gray-400/30 flex justify-between items-center">
+            <span className="font-bold opacity-70">Total Wealth</span>
+            <span className="font-mono font-extrabold text-brand-500">{formatCurrency(total)}</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, calculatedData, theme }) => {
   
-  // Data for Asset Composition (Stacked Bar)
   const compositionData = scenarios.map(s => {
       const c = calculatedData.find(cd => cd.id === s.id);
       if (!c) return { name: s.name };
       
       // 1. Initial Capital Logic (Side Portfolio Base)
-      // Show Initial Capital for ANY scenario that has a side investment
-      // Previously was restricted, but users want to see the side portfolio base in all scenarios.
-      const initialCapital = c.totalInvestmentContribution;
+      // Only show for Investment/Rent modes. For Buy modes, it confuses the "Housing Wealth" picture.
+      const initialCapital = (s.isRentOnly || s.isInvestmentOnly) ? c.totalInvestmentContribution : 0;
+      
+      // 2. Down Payment (Separate stack for Buy Modes)
+      const downPayment = (!s.isRentOnly && !s.isInvestmentOnly) ? (s.downPayment || 0) : 0;
 
-      // 2. Principal Paid (Amortized Equity)
+      // 3. Principal Paid (Amortized Equity)
       const principalPaid = (!s.isRentOnly && !s.isInvestmentOnly) ? c.principalPaid : 0;
 
-      // 3. Appreciation (Market Gain)
+      // 4. Appreciation (Market Gain)
       const appreciation = (!s.isRentOnly && !s.isInvestmentOnly) ? c.totalAppreciation : 0;
 
-      // 4. Tax Refunds (Strict Tax Refund Only)
+      // 5. Tax Refunds (Strict Tax Refund Only)
       const taxRefund = (!s.isRentOnly && !s.isInvestmentOnly) ? c.taxRefund : 0;
       
-      // 5. Rental Income (Net of Tax)
-      // Safety: Ensure we don't display negative bars if tax calc is weird, though it shouldn't be with the main fix.
+      // 6. Rental Income (Net of Tax)
       const rawRentalIncome = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.accumulatedRentalIncome - (c.totalRentalTax || 0)) : 0;
       const rentalIncome = Math.max(0, rawRentalIncome);
       
-      // 6. Investment Growth (Side Portfolio Gain)
+      // 7. Investment Growth (Side Portfolio Gain)
       let investmentProfit = 0;
       if (s.isInvestmentOnly || s.isRentOnly) {
           investmentProfit = c.profit;
       } else {
-          // For Buy mode, profit is Value - Contribution
-          investmentProfit = Math.max(0, c.investmentPortfolio - c.totalInvestmentContribution);
+          // For Buy mode, we hide this from the Housing Wealth chart to avoid confusion
+          investmentProfit = 0; 
       }
 
       return {
           name: s.name,
           initialCapital,
+          downPayment,
           principalPaid,
           appreciation,
           taxRefund,
           rentalIncome,
-          investmentProfit,
-          // Helper for total top label if needed
-          total: initialCapital + principalPaid + appreciation + taxRefund + rentalIncome + investmentProfit
+          investmentProfit
       };
   });
 
-  // Data for Line Chart (Strictly TOTAL GAIN Trajectory)
-  // Use data from the first calculated scenario to establish X-axis labels (labels are standardized in calc logic)
   const primaryScenario = calculatedData[0];
   const lineChartData = primaryScenario?.annualData.map((point, index) => {
       const chartPoint: any = { label: point.label };
@@ -94,7 +127,6 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
       
-      {/* Wealth Trajectory (Line Chart) - Uses TOTAL GAIN */}
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
         <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Gain Trajectory</h3>
         <p className="text-xs text-gray-500 mb-4">Cumulative Wealth Generated Over Time (Profit). <br/>Includes Equity Gains, Tax Refunds, Rental Income, and Investment Growth.</p>
@@ -140,7 +172,6 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
         </div>
       </div>
 
-      {/* Asset Composition (Stacked Bar) - Correct Buckets */}
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
         <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Wealth Breakdown</h3>
         <p className="text-xs text-gray-500 mb-4">Composition of Assets & Accumulated Cash Benefits.</p>
@@ -151,30 +182,17 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <YAxis tickFormatter={(val) => `$${val/1000}k`} axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <Tooltip 
-                formatter={(value: number) => formatCurrency(value)} 
+                content={<CustomTooltip theme={theme} />}
                 cursor={{fill: isDark ? '#404040' : '#f9fafb'}}
-                contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: tooltipBg, color: isDark ? 'white' : 'black'}}
               />
               <Legend wrapperStyle={{color: textColor}} />
               
-              {/* STACK ORDER (Bottom to Top) */}
-              
-              {/* 1. Initial Capital (Blue) - Side Portfolio Base */}
-              <Bar dataKey="initialCapital" name="Initial Capital" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
-              
-              {/* 2. Principal Paid (Green) */}
+              <Bar dataKey="initialCapital" name="Side Invest. Principal" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="downPayment" name="Down Payment (Equity)" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
               <Bar dataKey="principalPaid" name="Principal Paid" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
-              
-              {/* 3. Appreciation (Teal) */}
               <Bar dataKey="appreciation" name="Appreciation" stackId="a" fill="#14b8a6" radius={[0, 0, 0, 0]} />
-              
-              {/* 4. Investment Growth (Purple) */}
               <Bar dataKey="investmentProfit" name="Investment Growth" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
-              
-              {/* 5. Tax Refund (Cyan) */}
               <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#06b6d4" radius={[0, 0, 0, 0]} />
-              
-              {/* 6. Rental Income (Gold - Top) */}
               <Bar dataKey="rentalIncome" name="Rental Income (Net)" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
               
             </BarChart>
