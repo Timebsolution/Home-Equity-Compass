@@ -15,12 +15,13 @@ import {
 } from 'recharts';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
-import { Theme } from '../App';
+import { Theme, ComparisonMetric } from '../App';
 
 interface ComparisonChartsProps {
   scenarios: LoanScenario[];
   calculatedData: CalculatedLoan[];
   theme: Theme;
+  metric?: ComparisonMetric;
 }
 
 const CustomTooltip = ({ active, payload, label, theme }: any) => {
@@ -59,38 +60,24 @@ const CustomTooltip = ({ active, payload, label, theme }: any) => {
   return null;
 };
 
-export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, calculatedData, theme }) => {
+export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, calculatedData, theme, metric = 'profit' }) => {
   
   const compositionData = scenarios.map(s => {
       const c = calculatedData.find(cd => cd.id === s.id);
       if (!c) return { name: s.name };
       
-      // 1. Initial Capital Logic (Side Portfolio Base)
-      // Only show for Investment/Rent modes. For Buy modes, it confuses the "Housing Wealth" picture.
       const initialCapital = (s.isRentOnly || s.isInvestmentOnly) ? c.totalInvestmentContribution : 0;
-      
-      // 2. Down Payment (Separate stack for Buy Modes)
       const downPayment = (!s.isRentOnly && !s.isInvestmentOnly) ? (s.downPayment || 0) : 0;
-
-      // 3. Principal Paid (Amortized Equity)
       const principalPaid = (!s.isRentOnly && !s.isInvestmentOnly) ? c.principalPaid : 0;
-
-      // 4. Appreciation (Market Gain)
       const appreciation = (!s.isRentOnly && !s.isInvestmentOnly) ? c.totalAppreciation : 0;
-
-      // 5. Tax Refunds (Strict Tax Refund Only)
       const taxRefund = (!s.isRentOnly && !s.isInvestmentOnly) ? c.taxRefund : 0;
-      
-      // 6. Rental Income (Net of Tax)
       const rawRentalIncome = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.accumulatedRentalIncome - (c.totalRentalTax || 0)) : 0;
       const rentalIncome = Math.max(0, rawRentalIncome);
       
-      // 7. Investment Growth (Side Portfolio Gain)
       let investmentProfit = 0;
       if (s.isInvestmentOnly || s.isRentOnly) {
           investmentProfit = c.profit;
       } else {
-          // For Buy mode, we hide this from the Housing Wealth chart to avoid confusion
           investmentProfit = 0; 
       }
 
@@ -113,7 +100,14 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       scenarios.forEach(s => {
           const c = calculatedData.find(cd => cd.id === s.id);
           if (c && c.annualData[index]) {
-              chartPoint[s.name] = c.annualData[index].totalGain;
+              if (metric === 'netWorth') {
+                  chartPoint[s.name] = c.annualData[index].netWorth;
+              } else if (metric === 'netCost') {
+                  chartPoint[s.name] = c.annualData[index].netCost;
+              } else {
+                  // Default Profit (Total Gain)
+                  chartPoint[s.name] = c.annualData[index].totalGain;
+              }
           }
       });
       return chartPoint;
@@ -124,12 +118,26 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
   const gridColor = isDark ? '#404040' : '#f3f4f6'; 
   const tooltipBg = isDark ? '#171717' : '#ffffff';
 
+  let chartTitle = "Total Gain Trajectory";
+  let chartSubtitle = "Cumulative Wealth Generated Over Time (Profit).";
+  let yAxisLabel = "Total Gain ($)";
+
+  if (metric === 'netWorth') {
+      chartTitle = "Net Worth Trajectory";
+      chartSubtitle = "Total Assets (Home Equity + Investments) Over Time.";
+      yAxisLabel = "Net Worth ($)";
+  } else if (metric === 'netCost') {
+      chartTitle = "Cumulative True Cost";
+      chartSubtitle = "Total Sunk Costs Over Time (Money Lost). Lower is Better.";
+      yAxisLabel = "Net Cost ($)";
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
       
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
-        <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Gain Trajectory</h3>
-        <p className="text-xs text-gray-500 mb-4">Cumulative Wealth Generated Over Time (Profit). <br/>Includes Equity Gains, Tax Refunds, Rental Income, and Investment Growth.</p>
+        <h3 className={`text-lg font-bold mb-1 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>{chartTitle}</h3>
+        <p className="text-xs text-gray-500 mb-4">{chartSubtitle}</p>
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={lineChartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
@@ -147,10 +155,10 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
                 tickLine={false} 
                 tick={{fontSize: 12, fill: textColor}} 
               >
-                 <Label value="Total Gain ($)" angle={-90} position="insideLeft" fill={textColor} fontSize={10} />
+                 <Label value={yAxisLabel} angle={-90} position="insideLeft" fill={textColor} fontSize={10} />
               </YAxis>
               <Tooltip 
-                formatter={(value: number, name: string) => [formatCurrency(value), 'Total Gain']}
+                formatter={(value: number, name: string) => [formatCurrency(value), name]}
                 labelFormatter={(label) => `${label}`}
                 cursor={{stroke: textColor}}
                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: tooltipBg, color: isDark ? 'white' : 'black'}}
@@ -173,7 +181,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       </div>
 
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
-        <h3 className={`text-lg font-bold mb-6 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Wealth Breakdown</h3>
+        <h3 className={`text-lg font-bold mb-1 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Wealth Breakdown</h3>
         <p className="text-xs text-gray-500 mb-4">Composition of Assets & Accumulated Cash Benefits.</p>
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
