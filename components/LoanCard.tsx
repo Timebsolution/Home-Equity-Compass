@@ -35,6 +35,7 @@ const SliderInput = ({
     unit, 
     theme,
     disabled = false,
+    isGlobal = false,
     className
 }: { 
     label: string | React.ReactNode, 
@@ -46,6 +47,7 @@ const SliderInput = ({
     unit?: string, 
     theme: Theme,
     disabled?: boolean,
+    isGlobal?: boolean,
     className?: string
 }) => {
     const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/20 border-gray-600 text-white';
@@ -78,9 +80,16 @@ const SliderInput = ({
     };
 
     return (
-        <div className={`mb-2 ${disabled ? 'opacity-50 pointer-events-none' : ''} ${className || ''}`}>
+        <div className={`mb-2 ${disabled ? 'opacity-75 pointer-events-none' : ''} ${className || ''}`}>
             <div className="flex justify-between items-center mb-1">
-                <label className={`text-[10px] font-semibold ${labelColor} flex items-center`}>{label}</label>
+                <div className="flex items-center gap-2">
+                    <label className={`text-[10px] font-semibold ${labelColor} flex items-center`}>{label}</label>
+                    {isGlobal && (
+                        <span className="text-[9px] font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1 rounded flex items-center gap-0.5">
+                            <Lock size={8} /> Global
+                        </span>
+                    )}
+                </div>
                 <div className="relative w-20">
                     <input 
                         type="text"
@@ -90,7 +99,7 @@ const SliderInput = ({
                         onFocus={() => setFocused(true)}
                         onBlur={() => setFocused(false)}
                         disabled={disabled}
-                        className={`w-full text-xs p-0.5 text-right border rounded ${inputClass}`}
+                        className={`w-full text-xs p-0.5 text-right border rounded ${inputClass} ${disabled ? 'bg-gray-50 dark:bg-gray-800 text-gray-500' : ''}`}
                     />
                     {unit && <span className="absolute right-6 top-0.5 text-[10px] text-gray-400 opacity-0">{unit}</span>}
                 </div>
@@ -103,7 +112,7 @@ const SliderInput = ({
                 value={value} 
                 onChange={e => onChange(parseFloat(e.target.value))} 
                 disabled={disabled}
-                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-brand-600 dark:bg-gray-600" 
+                className={`w-full h-1 rounded-lg appearance-none cursor-pointer ${disabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-300 dark:bg-gray-600 accent-brand-600'}`} 
             />
         </div>
     );
@@ -208,20 +217,18 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const labelColor = theme === 'light' ? 'text-gray-500' : 'text-gray-400';
   const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/20 border-gray-600 text-white';
   const advancedBg = theme === 'light' ? 'bg-gray-50' : 'bg-black/30';
-  const badgeGlobal = "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300";
-  const badgeManual = "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300";
-
-  const simulatedMonths = Math.round(projectionYears * 12);
+  const badgeGlobal = "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800";
+  const badgeManual = "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800";
 
   const rPrincipal = Math.round(calculated.principalPaid);
   const rTax = Math.round(calculated.taxRefund);
   const rRent = Math.round(calculated.accumulatedRentalIncome);
   const rRentTax = Math.round(calculated.totalRentalTax || 0);
   const rAppreciation = Math.round(calculated.totalAppreciation);
-  const rRealInvGain = Math.round(Math.max(0, calculated.investmentPortfolio - calculated.totalInvestmentContribution));
+  const rRealInvGain = Math.round(calculated.profit); 
   const rSellingCosts = Math.round(calculated.sellingCosts);
   const rPropertyCosts = Math.round(calculated.totalPropertyCosts);
-  const rTotalPaid = Math.round(calculated.totalPaid); // PITI + HOA + Extra
+  const rTotalPaid = Math.round(calculated.totalPaid); 
   const rClosing = Math.round(scenario.closingCosts || 0);
   const rDown = Math.round(scenario.downPayment || 0);
   const rMonthlyPITI = Math.round(calculated.totalMonthlyPayment);
@@ -229,15 +236,15 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const rCapitalGainsTax = Math.round(calculated.capitalGainsTax || 0);
   const rInvContribution = Math.round(calculated.totalInvestmentContribution || 0);
   const rLoanBalance = Math.round(calculated.remainingBalance);
-  const rEquityAtSale = Math.round(calculated.futureHomeValue - calculated.remainingBalance - calculated.sellingCosts);
+  const rGrossEquity = Math.round(calculated.futureHomeValue - calculated.remainingBalance);
+  const rCashAfterSale = Math.round(rGrossEquity - calculated.sellingCosts - calculated.capitalGainsTax);
 
   const displayTotalGain = calculated.profit;
-  const displayCashBack = calculated.equity; // Cash After Sale (Equity - CapGains)
 
   const getSummaryText = () => {
     if (scenario.isInvestmentOnly) return `Investment Strategy · ${projectionYears.toFixed(1)} years`;
-    if (scenario.isRentOnly) return `Rent Growth · ${projectionYears.toFixed(1)} years (${simulatedMonths} mos)`;
-    return `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)} · ${projectionYears.toFixed(1)} years (${simulatedMonths} mos)`;
+    if (scenario.isRentOnly) return `Rent + Invest Monthly Savings · ${projectionYears.toFixed(1)} years`;
+    return `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)} · ${projectionYears.toFixed(1)} years`;
   };
   
   const getPitiTitle = () => {
@@ -249,10 +256,9 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const getNetPaymentTitle = () => {
       if (scenario.isInvestmentOnly) return "Net Contribution";
       if (scenario.isRentOnly) return "Net Monthly Savings";
-      return "Net Monthly Payment";
+      return "Net Monthly Payment (After Rent)";
   };
   
-  // lockInvestment = false means Global (Blue), lockInvestment = true means Manual (Orange)
   const isGlobalInvestment = !scenario.lockInvestment;
 
   return (
@@ -260,8 +266,10 @@ export const LoanCard: React.FC<LoanCardProps> = ({
       className={`${cardBg} rounded-xl shadow-lg border-t-4 p-4 flex flex-col gap-2 relative transition-all duration-300 hover:shadow-xl group`}
       style={{ borderColor: isWinner ? '#10b981' : scenario.color, height: 'fit-content' }}
     >
+      {/* ... (Previous header inputs/slider code preserved) ... */}
       {isExpanded && (
         <>
+            {/* Header */}
             {isWinner && (
                 <div className="absolute -top-3 right-4 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-lg flex items-center gap-1">
                     <Trophy size={10} /> WINNER
@@ -299,7 +307,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
 
             <div className="flex flex-col md:grid md:grid-cols-2 gap-4 md:gap-8 mt-1">
                 
-                {/* LEFT SIDE: Inputs / Meta / Controls */}
+                {/* LEFT SIDE: Inputs */}
                 <div className="flex flex-col gap-2">
                     <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
                         <div>{getSummaryText()}</div>
@@ -339,13 +347,13 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                         {/* 1. HOUSE & LOAN */}
                         {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
-                            <div className="flex justify-between items-center">
+                            <div className="flex justify-between items-center mb-2">
                                 <span className="text-[9px] font-bold text-gray-400 uppercase">HOUSE & LOAN</span>
-                                <div>
-                                    <button onClick={() => toggleLock('lockFMV')} className={`text-[9px] px-1.5 py-0.5 rounded border mr-1 ${scenario.lockFMV ? badgeManual : badgeGlobal}`}>
+                                <div className="flex gap-2">
+                                    <button onClick={() => toggleLock('lockFMV')} className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${scenario.lockFMV ? badgeManual : badgeGlobal}`}>
                                         FMV: {scenario.lockFMV ? "Manual" : "Global"}
                                     </button>
-                                    <button onClick={() => toggleLock('lockLoan')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockLoan ? badgeManual : badgeGlobal}`}>
+                                    <button onClick={() => toggleLock('lockLoan')} className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${scenario.lockLoan ? badgeManual : badgeGlobal}`}>
                                         Loan: {scenario.lockLoan ? "Manual" : "Global"}
                                     </button>
                                 </div>
@@ -356,7 +364,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => handleChange('homeValue', v)} 
                                 min={100000} max={3000000} step={5000} theme={theme} 
                                 disabled={!scenario.lockFMV}
-                                className={!scenario.lockFMV ? 'opacity-60' : ''}
+                                isGlobal={!scenario.lockFMV}
                             />
                             <SliderInput 
                                 label="Loan Amount" 
@@ -364,7 +372,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => handleChange('loanAmount', v)} 
                                 min={50000} max={2000000} step={5000} theme={theme}
                                 disabled={!scenario.lockLoan}
-                                className={!scenario.lockLoan ? 'opacity-60' : ''}
+                                isGlobal={!scenario.lockLoan}
                             />
                             <SliderInput label="Interest Rate (%)" value={scenario.interestRate} onChange={v => handleChange('interestRate', v)} min={0} max={15} step={0.125} theme={theme} />
                             <SliderInput label="Years Left" value={scenario.yearsRemaining} onChange={v => handleChange('yearsRemaining', v)} min={0} max={40} step={1} theme={theme} />
@@ -393,15 +401,15 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                         {/* 3. RENT */}
                         {!scenario.isInvestmentOnly && (
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
-                             <div className="flex justify-between items-center">
+                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-[9px] font-bold text-gray-400 uppercase">RENT {(!scenario.isRentOnly) && "(IF RENTING PART)"}</span>
                                 {scenario.isRentOnly ? (
-                                     <button onClick={() => toggleLock('lockRent')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockRent ? badgeManual : badgeGlobal}`}>
-                                        {scenario.lockRent ? "Manual" : "Global"}
+                                     <button onClick={() => toggleLock('lockRent')} className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${scenario.lockRent ? badgeManual : badgeGlobal}`}>
+                                        Rent: {scenario.lockRent ? "Manual" : "Global"}
                                      </button>
                                 ) : (
-                                    <button onClick={() => toggleLock('lockRentIncome')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockRentIncome ? badgeManual : badgeGlobal}`}>
-                                        {scenario.lockRentIncome ? "Manual" : "Global"}
+                                    <button onClick={() => toggleLock('lockRentIncome')} className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${scenario.lockRentIncome ? badgeManual : badgeGlobal}`}>
+                                        Rent: {scenario.lockRentIncome ? "Manual" : "Global"}
                                     </button>
                                 )}
                             </div>
@@ -414,7 +422,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                         onChange={v => handleChange('rentMonthly', v)} 
                                         min={500} max={10000} step={50} theme={theme} 
                                         disabled={!scenario.lockRent}
-                                        className={!scenario.lockRent ? 'opacity-60' : ''}
+                                        isGlobal={!scenario.lockRent}
                                     />
                                     <SliderInput label="Annual Inc (%)" value={scenario.rentIncreasePerYear} onChange={v => handleChange('rentIncreasePerYear', v)} min={0} max={10} step={0.1} theme={theme} />
                                 </>
@@ -426,7 +434,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                         onChange={v => handleChange('rentalIncome', v)} 
                                         min={0} max={10000} step={50} theme={theme} 
                                         disabled={!scenario.lockRentIncome}
-                                        className={!scenario.lockRentIncome ? 'opacity-60' : ''}
+                                        isGlobal={!scenario.lockRentIncome}
                                     />
                                     <div className="flex items-center gap-2 mb-2 mt-1 justify-end">
                                         <label className={`text-[9px] flex items-center gap-1 ${labelColor} cursor-pointer`}>
@@ -456,7 +464,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                             <SliderInput label="Down Payment" value={scenario.downPayment} onChange={v => handleChange('downPayment', v)} min={0} max={1000000} step={5000} theme={theme} />
                             <SliderInput label="Closing Costs" value={scenario.closingCosts || 0} onChange={v => handleChange('closingCosts', v)} min={0} max={50000} step={100} theme={theme} />
                             <SliderInput label="Selling Cost %" value={scenario.sellingCostRate ?? 6} onChange={v => handleChange('sellingCostRate', v)} min={0} max={10} step={0.5} theme={theme} />
-                            <SliderInput label={`Gain Tax % (< 2 yrs)`} value={scenario.capitalGainsTaxRate ?? 20} onChange={v => handleChange('capitalGainsTaxRate', v)} min={0} max={50} step={1} theme={theme} />
+                            <SliderInput label={`Gain Tax % (≤ 2 yrs)`} value={scenario.capitalGainsTaxRate ?? 20} onChange={v => handleChange('capitalGainsTaxRate', v)} min={0} max={50} step={1} theme={theme} />
                         </div>
                         )}
 
@@ -470,21 +478,20 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                         
                         {/* 6. INVESTING */}
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
-                             <div className="flex justify-between items-center">
+                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-[9px] font-bold text-gray-400 uppercase">INVESTING</span>
-                                <button onClick={() => toggleLock('lockInvestment')} className={`text-[9px] px-1.5 py-0.5 rounded border ${scenario.lockInvestment ? badgeManual : badgeGlobal}`}>
-                                    {scenario.lockInvestment ? "Manual" : "Global"}
+                                <button onClick={() => toggleLock('lockInvestment')} className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${scenario.lockInvestment ? badgeManual : badgeGlobal}`}>
+                                    Mode: {scenario.lockInvestment ? "Manual" : "Global"}
                                 </button>
                             </div>
                             
-                            {/* Unified Inputs: Enabled if Manual (lock=true), Disabled if Global (lock=false) */}
                             <SliderInput 
                                 label="Starting Capital" 
                                 value={!isGlobalInvestment ? (scenario.investmentCapital ?? 100000) : (globalInvestmentSettings?.globalCashInvestment ?? 0)} 
                                 onChange={v => onUpdate(scenario.id, {investmentCapital: v})} 
                                 min={0} max={1000000} step={5000} theme={theme} 
                                 disabled={isGlobalInvestment}
-                                className={isGlobalInvestment ? 'opacity-60' : ''}
+                                isGlobal={isGlobalInvestment}
                             />
                             <SliderInput 
                                 label="Rate (% per annum)" 
@@ -492,7 +499,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 onChange={v => onUpdate(scenario.id, {investmentRate: v})} 
                                 min={0} max={15} step={0.1} theme={theme} 
                                 disabled={isGlobalInvestment}
-                                className={isGlobalInvestment ? 'opacity-60' : ''}
+                                isGlobal={isGlobalInvestment}
                             />
                             <div className="mb-2">
                                 <SliderInput 
@@ -501,16 +508,23 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     onChange={v => onUpdate(scenario.id, {investmentMonthly: v})} 
                                     min={0} max={10000} step={50} theme={theme} 
                                     disabled={isGlobalInvestment}
-                                    className={isGlobalInvestment ? 'opacity-60' : ''}
+                                    isGlobal={isGlobalInvestment}
                                 />
                                 <div className="flex justify-end">
                                     <div className="w-1/2">
-                                        <label className={`text-[9px] font-semibold ${isGlobalInvestment ? 'text-gray-400' : 'text-gray-500'} mb-1 block`}>Frequency</label>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <label className={`text-[9px] font-semibold ${isGlobalInvestment ? 'text-gray-400' : 'text-gray-500'}`}>Frequency</label>
+                                            {isGlobalInvestment && (
+                                                <span className="text-[9px] font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-1 rounded flex items-center gap-0.5">
+                                                    <Lock size={8} /> Global
+                                                </span>
+                                            )}
+                                        </div>
                                         <select 
                                             value={!isGlobalInvestment ? (scenario.investmentContributionFrequency || 'monthly') : (globalInvestmentSettings?.globalContributionFrequency || 'monthly')} 
                                             onChange={e => onUpdate(scenario.id, {investmentContributionFrequency: e.target.value as any})}
                                             disabled={isGlobalInvestment}
-                                            className={`w-full text-xs p-1 border rounded ${inputClass} ${isGlobalInvestment ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                            className={`w-full text-xs p-1 border rounded ${inputClass} ${isGlobalInvestment ? 'opacity-70 bg-gray-50 dark:bg-gray-800 cursor-not-allowed' : ''}`}
                                         >
                                             <option value="weekly">Weekly</option>
                                             <option value="biweekly">Every 2 weeks</option>
@@ -594,13 +608,13 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     {rTax > 0 && <BreakdownRow label="Mortgage Tax Refund" value={`+${formatCurrency(rTax)}`} colorClass="text-emerald-500 font-bold" icon={<Receipt size={10} />} tooltip="Tax savings from mortgage interest deduction (Interest + Property Tax)" />}
                                     <BreakdownRow label={scenario.rentalIncomeTaxEnabled ? "Rental Income (Gross)" : "Rental Income"} value={`+${formatCurrency(rRent)}`} colorClass="text-emerald-500 font-bold" icon={<Building size={10} />} tooltip="Total rent collected before expenses" />
                                     <BreakdownRow label="Rental Tax" value={`-${formatCurrency(rRentTax)}`} colorClass="text-red-500 font-bold" icon={<Scale size={10} />} tooltip="Tax paid on rental income" />
-                                    {(rRealInvGain > 0 && (scenario.isInvestmentOnly || scenario.isRentOnly)) && <BreakdownRow label="Investment Growth" value={`+${formatCurrency(rRealInvGain)}`} colorClass="text-emerald-500 font-bold" icon={<TrendingUp size={10} />} tooltip="Profit from invested idle cash or side portfolio" /> }
+                                    
                                     <BreakdownRow label={`Selling Costs (${scenario.sellingCostRate}%)`} value={`-${formatCurrency(rSellingCosts)}`} colorClass="text-red-500 font-bold" icon={<Tag size={10} />} tooltip="Agent fees and closing costs when selling" />
                                     {rCapitalGainsTax > 0 && <BreakdownRow label={`Capital Gains Tax (${scenario.capitalGainsTaxRate ?? 20}%)`} value={`-${formatCurrency(rCapitalGainsTax)}`} colorClass="text-red-500 font-bold" icon={<Scale size={10} />} tooltip="Tax on profit if sold within 2 years" />}
                                 </>
                             ) : (
                                 <>
-                                    <BreakdownRow label="Investment Growth" value={`+${formatCurrency(rRealInvGain)}`} colorClass="text-emerald-500 font-bold" icon={<TrendingUp size={10} />} tooltip="Profit from portfolio" />
+                                    <BreakdownRow label="Investment Growth" value={`+${formatCurrency(rRealInvGain)}`} colorClass="text-emerald-500 font-bold" icon={<TrendingUp size={10} />} tooltip="Profit from portfolio (Interest Only)" />
                                 </>
                             )}
                         </div>
@@ -610,7 +624,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                     <div className={`border rounded-lg ${theme==='light'?'border-gray-200 bg-gray-50':'border-gray-700 bg-black/20'}`}>
                          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 rounded-t-lg">
                             <Wallet size={12} className="text-gray-500" />
-                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">TOTAL CASH OUT-OF-POCKET</span>
+                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">TOTAL CASH OUT-OF-POCKET ({projectionYears.toFixed(1)} YR)</span>
                         </div>
                         <div className="p-2 space-y-1">
                             {!scenario.isRentOnly ? (
@@ -626,18 +640,17 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                     {!scenario.isInvestmentOnly && rDown > 0 && <BreakdownRow label="Down Payment" value={`-${formatCurrency(rDown)}`} colorClass="text-red-500 font-bold" icon={<Wallet size={10} />} tooltip="Initial cash for purchase" />}
                                     {!scenario.isInvestmentOnly && rClosing > 0 && <BreakdownRow label="Closing Costs" value={`-${formatCurrency(rClosing)}`} colorClass="text-red-500 font-bold" icon={<Receipt size={10} />} tooltip="Initial fees for loan/purchase" />}
                                     
-                                    {/* Add Investment Contributions row for Investment Only mode */}
-                                    {scenario.isInvestmentOnly && rInvContribution > 0 && <BreakdownRow label="Investment Contributions" value={`-${formatCurrency(rInvContribution)}`} colorClass="text-blue-500 font-bold" icon={<PiggyBank size={10} />} tooltip="Total Cash put into Side Investment Portfolio" />}
+                                    {(scenario.isInvestmentOnly || scenario.isRentOnly) && rInvContribution > 0 && <BreakdownRow label="Investment Contributions" value={`-${formatCurrency(rInvContribution)}`} colorClass="text-blue-500 font-bold" icon={<PiggyBank size={10} />} tooltip="Total Cash put into Investment Portfolio" />}
                                     
-                                    {/* Move Net Monthly Payment Here */}
                                     {!scenario.isInvestmentOnly && (scenario.rentalIncome || 0) > 0 && (
                                         <div className="border-t border-dashed border-gray-600/20 pt-1 mt-1">
                                             <BreakdownRow 
-                                                label={getNetPaymentTitle()} 
+                                                label="Net Monthly Payment (After Rent)" 
                                                 value={`${formatCurrency(rNetMonthly)}/mo`} 
-                                                colorClass="text-indigo-500 font-bold" 
+                                                colorClass="text-indigo-500 font-bold opacity-90" 
                                                 icon={<Clock size={10} className="text-indigo-400" />} 
-                                                tooltip="Total Monthly Payment minus Monthly Rent Received" 
+                                                tooltip="Informational: PITI - (Gross Rent - Rental Tax). Your actual monthly outflow."
+                                                bgClass="bg-indigo-50/50 dark:bg-indigo-900/10 rounded"
                                             />
                                         </div>
                                     )}
@@ -645,7 +658,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                             ) : (
                                 <>
                                     <BreakdownRow label="Rent Payments" value={`-${formatCurrency(rTotalPaid)}`} colorClass="text-red-500 font-bold" icon={<CreditCard size={10} />} />
-                                    {/* Rent mode also doesn't count side investment as housing cost */}
+                                    {rInvContribution > 0 && <BreakdownRow label="Investment Contributions" value={`-${formatCurrency(rInvContribution)}`} colorClass="text-blue-500 font-bold" icon={<PiggyBank size={10} />} tooltip="Total Cash put into Side Investment Portfolio" />}
                                 </>
                             )}
                             <div className="border-t border-dashed border-gray-600/20 pt-1 mt-1">
@@ -670,7 +683,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                              <div className="flex justify-between items-center text-xs py-1">
                                 <div className="flex items-center gap-1">
                                     <span className="text-gray-500 dark:text-gray-400">Out-of-Pocket</span>
-                                    <Tooltip text="Net cash you paid (Payments + Upfront + Taxes - Rent)" />
+                                    <Tooltip text="Net cash you paid (Housing costs only for Buy/Refi)" />
                                 </div>
                                 <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(calculated.totalInvestedAmount)}</span>
                              </div>
@@ -678,7 +691,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                              <div className="flex justify-between items-center text-xs py-1 border-t border-dashed border-gray-600/20">
                                 <div className="flex items-center gap-1">
                                     <span className="text-gray-500 dark:text-gray-400">Profit</span>
-                                    <Tooltip text="Total Return: Gains + Income - Costs - Taxes" />
+                                    <Tooltip text="Total Return: Gains + Income - Costs - Taxes (Housing Only for Buy/Refi)" />
                                 </div>
                                 <span className="font-bold text-emerald-500">{formatCurrency(calculated.profit)}</span>
                              </div>
@@ -686,7 +699,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                              <div className="flex justify-between items-center text-xs py-1">
                                 <div className="flex items-center gap-1">
                                     <span className="text-gray-500 dark:text-gray-400">True Cost</span>
-                                    <Tooltip text="Net Cost = Out-of-Pocket - Cash After Sale. Represents the sunk cost of housing." />
+                                    <Tooltip text="Net Out-of-Pocket (Housing) - Net Cash After Sale" />
                                 </div>
                                 <span className="font-bold text-red-500">{formatCurrency(calculated.netCost)}</span>
                              </div>
@@ -702,10 +715,10 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                                 </div>
                                 <div className="flex justify-between items-center text-xs py-1">
                                     <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Equity at Sale</span>
-                                        <Tooltip text="Proceeds after paying off loan and selling costs (before Capital Gains Tax)" />
+                                        <span className="text-gray-500 dark:text-gray-400">Gross Equity (Before Costs)</span>
+                                        <Tooltip text="Future Home Value - Loan Balance" />
                                     </div>
-                                    <span className={`font-medium ${theme==='light'?'text-gray-700':'text-gray-300'}`}>{formatCurrency(rEquityAtSale)}</span>
+                                    <span className={`font-medium ${theme==='light'?'text-gray-700':'text-gray-300'}`}>{formatCurrency(rGrossEquity)}</span>
                                 </div>
                              </>
                              )}
@@ -713,17 +726,17 @@ export const LoanCard: React.FC<LoanCardProps> = ({
                              {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
                              <div className="flex justify-between items-center text-xs py-1">
                                 <div className="flex items-center gap-1">
-                                    <span className="text-gray-500 dark:text-gray-400">Cash After Sale</span>
-                                    <Tooltip text="Actual cash pocketed: Equity - Capital Gains Tax" />
+                                    <span className="text-gray-500 dark:text-gray-400">Net Cash After Sale</span>
+                                    <Tooltip text="Actual cash pocketed: Gross Equity - Selling Costs - Capital Gains Tax" />
                                 </div>
-                                <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(displayCashBack)}</span>
+                                <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(rCashAfterSale)}</span>
                              </div>
                              )}
 
                              <div className="flex justify-between items-center text-xs py-1 border-t border-gray-600/20 mt-1 pt-2">
                                 <div className="flex items-center gap-1">
                                     <span className="text-gray-500 dark:text-gray-400 font-bold uppercase text-[10px]">Annual Return %</span>
-                                    <Tooltip text="Compound Annual Growth Rate (CAGR) on your capital" />
+                                    <Tooltip text="Annualized Return on Total Cash Out-of-Pocket" />
                                 </div>
                                 <span className="font-bold text-gray-400">{calculated.effectiveAnnualReturn.toFixed(1)}%</span>
                              </div>
@@ -742,7 +755,7 @@ export const LoanCard: React.FC<LoanCardProps> = ({
             </div>
         </>
       )}
-
+      {/* ... (Collapsed view remains the same) ... */}
       {!isExpanded && (
         <div 
             className="w-full cursor-pointer group" 
