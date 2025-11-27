@@ -1,9 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { PlusCircle, Calculator, Clock, TrendingUp, Sun, Moon, PiggyBank, Link, ChevronUp, ChevronDown, Globe, Eye, EyeOff } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { LoanScenario, CalculatedLoan, AnalysisStatus } from './types';
-import { calculateLoan, generateId, COLORS, formatCurrency } from './utils/calculations';
+import { LoanScenario, CalculatedLoan } from './types';
+import { calculateLoan, generateId, COLORS, formatCurrency, calculateInvestmentPortfolio } from './utils/calculations';
 import { LoanCard } from './components/LoanCard';
 import { ComparisonCharts } from './components/ComparisonCharts';
 import { extractPropertyData } from './services/geminiService';
@@ -66,20 +65,20 @@ function App() {
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
   
   const [isGlobalsOpen, setIsGlobalsOpen] = useState(false);
-  const [isInvestOpen, setIsInvestOpen] = useState(false);
-  const [isProjectionOpen, setIsProjectionOpen] = useState(false);
+  const [isInvestOpen, setIsInvestOpen] = useState(true); // Open by default
+  const [isProjectionOpen, setIsProjectionOpen] = useState(true); // Open by default
 
-  const [horizonMode, setHorizonMode] = useState<'years' | 'months'>('months');
-  const [horizonValue, setHorizonValue] = useState<number>(24);
+  const [horizonMode, setHorizonMode] = useState<'years' | 'months'>('years');
+  const [horizonValue, setHorizonValue] = useState<number>(5); // Default 5 years
   const [growthEnabled, setGrowthEnabled] = useState<boolean>(true);
-  const [appreciationRate, setAppreciationRate] = useState<number>(4.0);
+  const [appreciationRate, setAppreciationRate] = useState<number>(2.0); // Default 2.0%
   
   const [globalCashInvestment, setGlobalCashInvestment] = useState<number>(100000); 
-  const [globalMonthlyContribution, setGlobalMonthlyContribution] = useState<number>(0);
+  const [globalMonthlyContribution, setGlobalMonthlyContribution] = useState<number>(500); // Default $500
   const [globalContributionFrequency, setGlobalContributionFrequency] = useState<string>('monthly');
-  const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(4.0);
+  const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(5.0); // Default 5%
   const [modelSeparateInvestment, setModelSeparateInvestment] = useState<boolean>(true);
-  const [globalReinvest, setGlobalReinvest] = useState<boolean>(true); // New
+  const [globalReinvest, setGlobalReinvest] = useState<boolean>(true);
 
   const [viewScheduleId, setViewScheduleId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -93,8 +92,8 @@ function App() {
       isRentOnly: false,
       homeValue: DEFAULT_GLOBAL_FMV,
       lockFMV: false,
-      loanAmount: DEFAULT_GLOBAL_LOAN, 
-      lockLoan: false,
+      loanAmount: 450000, // Manual 450k
+      lockLoan: true,
       interestRate: 5.75,
       loanTermYears: 30,
       yearsRemaining: 28,
@@ -111,7 +110,7 @@ function App() {
       homeInsurance: 1500,
       hoa: 0,
       pmi: 0,
-      taxRefundRate: 0, 
+      taxRefundRate: 20, // 20%
       downPayment: 0,
       closingCosts: 0,
       sellingCostRate: 6,
@@ -220,12 +219,15 @@ function App() {
       lockRentIncome: true,
       rentalIncomeTaxEnabled: false,
       rentalIncomeTaxRate: 20,
-      rentMonthly: 1500,
-      lockRent: true,
+      rentMonthly: 1900,
+      lockRent: false,
       rentIncreasePerYear: 0,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: false,
+      lockInvestment: true, // Manual
+      investmentCapital: 0, // 0 Start
+      investmentRate: 4,    // 4% Rate
+      investmentMonthly: 0, // 0 Monthly
       investmentContributionFrequency: 'monthly',
       investMonthlySavings: true,
       capitalGainsTaxRate: 20
@@ -256,7 +258,7 @@ function App() {
       homeInsurance: 0,
       hoa: 0,
       pmi: 0,
-      taxRefundRate: 0,
+      taxRefundRate: 20,
       downPayment: 0,
       closingCosts: 0,
       sellingCostRate: 0,
@@ -275,8 +277,8 @@ function App() {
       rentIncludeTax: false,
       rentTaxRate: 0,
       investmentCapital: 100000,
-      investmentMonthly: 0,
-      investmentRate: 4,
+      investmentMonthly: 500,
+      investmentRate: 5,
       lockInvestment: false, 
       investmentContributionFrequency: 'monthly',
       investMonthlySavings: true,
@@ -309,21 +311,9 @@ function App() {
       return horizonMode === 'years' ? horizonValue : horizonValue / 12;
   }, [horizonMode, horizonValue]);
 
-  // Convert Global Frequency to Monthly for calculations
-  const effectiveGlobalMonthlyContribution = useMemo(() => {
-      switch (globalContributionFrequency) {
-          case 'weekly': return globalMonthlyContribution * 52 / 12;
-          case 'biweekly': return globalMonthlyContribution * 26 / 12;
-          case 'monthly': return globalMonthlyContribution;
-          case 'semiannually': return globalMonthlyContribution * 2 / 12;
-          case 'annually': return globalMonthlyContribution / 12;
-          default: return globalMonthlyContribution;
-      }
-  }, [globalMonthlyContribution, globalContributionFrequency]);
-
   const calculatedData: CalculatedLoan[] = useMemo(() => {
     const investmentCashToPass = modelSeparateInvestment ? globalCashInvestment : 0;
-    const investmentMonthlyToPass = modelSeparateInvestment ? effectiveGlobalMonthlyContribution : 0;
+    const investmentMonthlyToPass = modelSeparateInvestment ? globalMonthlyContribution : 0; // PASS RAW AMOUNT
     const effectiveAppreciation = growthEnabled ? appreciationRate : 0;
     
     let baselinePayment: number | undefined = undefined;
@@ -335,6 +325,7 @@ function App() {
             investmentReturnRate, 
             investmentCashToPass, 
             investmentMonthlyToPass,
+            globalContributionFrequency,
             undefined, 
             globalRent, 
             useGlobalRent
@@ -349,11 +340,12 @@ function App() {
         investmentReturnRate, 
         investmentCashToPass, 
         investmentMonthlyToPass,
+        globalContributionFrequency,
         baselinePayment, 
         globalRent, 
         useGlobalRent
     ));
-  }, [scenarios, effectiveProjectionYears, growthEnabled, appreciationRate, investmentReturnRate, globalCashInvestment, effectiveGlobalMonthlyContribution, modelSeparateInvestment, globalRent, useGlobalRent]);
+  }, [scenarios, effectiveProjectionYears, growthEnabled, appreciationRate, investmentReturnRate, globalCashInvestment, globalMonthlyContribution, globalContributionFrequency, modelSeparateInvestment, globalRent, useGlobalRent]);
 
   const winnerId = useMemo(() => {
       if (calculatedData.length === 0) return null;
@@ -382,6 +374,14 @@ function App() {
     if (updates.lockRentIncome === false) {
         updates.rentalIncome = globalRent;
     }
+    
+    // Snap to global values immediately when unlocking FMV or Loan
+    if (updates.lockFMV === false) {
+        updates.homeValue = globalFMV;
+    }
+    if (updates.lockLoan === false) {
+        updates.loanAmount = globalLoan;
+    }
 
     const scenario = scenarios.find(s => s.id === id);
     if (scenario) {
@@ -402,8 +402,6 @@ function App() {
     setScenarios(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   };
   
-  // ... rest of App component (addScenario, etc.) remains same, just ensure imports match ...
-
   const addScenario = () => {
     if (scenarios.length >= 10) return;
     const newId = generateId();
@@ -528,46 +526,22 @@ function App() {
   const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/30 border-gray-600 text-white';
 
   const calcInvestmentResult = useMemo(() => {
-      const p = globalCashInvestment;
-      const pmt = effectiveGlobalMonthlyContribution; 
-      const r = investmentReturnRate / 100;
-      const t = effectiveProjectionYears;
-      const n = 12;
+      // Use centralized calculation engine for widget
+      const result = calculateInvestmentPortfolio(
+          globalCashInvestment,
+          globalMonthlyContribution,
+          globalContributionFrequency,
+          investmentReturnRate,
+          effectiveProjectionYears, // Sync with global horizon
+          globalReinvest
+      );
       
-      // If reinvesting, use compound interest. If not, use simple accumulation for interest (profit).
-      // Standard "Reinvest Income" behavior often implies simple interest withdrawal vs compound.
-      // But typically for a calculator, unchecked "Reinvest" means you get P + TotalContributions + SimpleInterest.
-      // And the "Profit" is that SimpleInterest.
-      
-      if (globalReinvest) {
-          const fvLump = p * Math.pow(1 + r/n, n*t);
-          let fvSeries = 0;
-          if (pmt > 0) {
-              if (r === 0) fvSeries = pmt * n * t;
-              else fvSeries = pmt * (Math.pow(1 + r/n, n*t) - 1) / (r/n);
-          }
-          return { 
-              fv: fvLump + fvSeries, 
-              profit: (fvLump + fvSeries) - (p + (pmt * n * t)) 
-          };
-      } else {
-          // Simple Interest: Interest = Principal * r * t + (PMT * totalMonths * r / 2 approx) or sum of interest
-          // More accurately: Annual interest on Principal = P * r. Total = P * r * t.
-          // Monthly contributions: 1st month earns r/12 * 1 month? No, usually annual rate simple.
-          // Let's stick to a basic Simple Interest approximation for the monthly series to be consistent.
-          // Interest on lump sum: P * r * t
-          // Interest on monthly series: Total Contrib * r * t / 2 (Rough average)
-          const simpleInterestLump = p * r * t;
-          const totalContrib = pmt * n * t;
-          const simpleInterestSeries = totalContrib * r * (t / 2); // Very rough approximation of average balance
-          
-          const totalSimpleInterest = simpleInterestLump + simpleInterestSeries;
-          return {
-              fv: p + totalContrib, // You take the interest out, so FV is just principal
-              profit: totalSimpleInterest
-          };
-      }
-  }, [globalCashInvestment, effectiveGlobalMonthlyContribution, investmentReturnRate, effectiveProjectionYears, globalReinvest]);
+      return { 
+          fv: result.finalValue, 
+          profit: result.interestEarned,
+          replenished: result.totalReplenished
+      };
+  }, [globalCashInvestment, globalMonthlyContribution, globalContributionFrequency, investmentReturnRate, effectiveProjectionYears, globalReinvest]);
 
   return (
     <div className={`min-h-screen pb-20 font-sans transition-colors duration-300 ${containerClass}`}>
@@ -723,10 +697,11 @@ function App() {
                                         <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Investment Term</label>
                                         <div className="relative">
                                             <input 
-                                            type="number" 
+                                            type="text" 
                                             value={effectiveProjectionYears.toFixed(1)} 
                                             readOnly
-                                            className={`w-full pr-8 py-1.5 text-sm border rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600 text-gray-500 dark:text-gray-400`} 
+                                            disabled 
+                                            className={`w-full pr-8 py-1.5 text-sm border rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed`} 
                                             />
                                             <span className="absolute right-2 top-1.5 text-xs text-gray-400">yrs</span>
                                         </div>
@@ -792,10 +767,12 @@ function App() {
                                         <span className="text-xs uppercase font-bold text-gray-500">Starting Capital</span>
                                         <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(globalCashInvestment)}</span>
                                     </div>
+                                    {calcInvestmentResult.replenished > 0 && (
                                     <div className="flex justify-between items-center">
                                         <span className="text-xs uppercase font-bold text-gray-500">Total Replenished</span>
-                                        <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(effectiveGlobalMonthlyContribution * 12 * effectiveProjectionYears)}</span>
+                                        <span className={`text-lg font-semibold ${theme === 'light' ? 'text-gray-800' : 'text-gray-200'}`}>{formatCurrency(calcInvestmentResult.replenished)}</span>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                             )}
