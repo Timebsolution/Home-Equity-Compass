@@ -1,10 +1,11 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PlusCircle, Calculator, Clock, TrendingUp, Sun, Moon, PiggyBank, Link, ChevronUp, ChevronDown, Globe, Eye, EyeOff } from 'lucide-react';
+import { PlusCircle, Calculator, Clock, TrendingUp, Sun, Moon, PiggyBank, Link, ChevronUp, ChevronDown, Globe, Eye, EyeOff, BarChart3, Wallet, ShieldCheck } from 'lucide-react';
 import { LoanScenario, CalculatedLoan } from './types';
 import { calculateLoan, generateId, COLORS, formatCurrency, calculateInvestmentPortfolio } from './utils/calculations';
 import { LoanCard } from './components/LoanCard';
 import { ComparisonCharts } from './components/ComparisonCharts';
+import { VerdictSummary } from './components/VerdictSummary';
 import { extractPropertyData } from './services/geminiService';
 import { AmortizationModal } from './components/AmortizationModal';
 import { ImportModal } from './components/ImportModal';
@@ -14,6 +15,7 @@ const DEFAULT_GLOBAL_LOAN = 467000;
 const DEFAULT_GLOBAL_RENT = 1900;
 
 export type Theme = 'light' | 'night';
+export type ComparisonMetric = 'profit' | 'netWorth' | 'netCost';
 
 const SmartInput = ({ value, onChange, className, ...props }: { value: number, onChange: (v: number) => void, className?: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'>) => {
   const [localStr, setLocalStr] = useState(value.toString());
@@ -65,20 +67,22 @@ function App() {
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
   
   const [isGlobalsOpen, setIsGlobalsOpen] = useState(false);
-  const [isInvestOpen, setIsInvestOpen] = useState(true); // Open by default
-  const [isProjectionOpen, setIsProjectionOpen] = useState(true); // Open by default
+  const [isInvestOpen, setIsInvestOpen] = useState(true); 
+  const [isProjectionOpen, setIsProjectionOpen] = useState(true);
 
   const [horizonMode, setHorizonMode] = useState<'years' | 'months'>('years');
-  const [horizonValue, setHorizonValue] = useState<number>(5); // Default 5 years
+  const [horizonValue, setHorizonValue] = useState<number>(5); 
   const [growthEnabled, setGrowthEnabled] = useState<boolean>(true);
-  const [appreciationRate, setAppreciationRate] = useState<number>(2.0); // Default 2.0%
+  const [appreciationRate, setAppreciationRate] = useState<number>(2.0); 
   
   const [globalCashInvestment, setGlobalCashInvestment] = useState<number>(100000); 
-  const [globalMonthlyContribution, setGlobalMonthlyContribution] = useState<number>(500); // Default $500
+  const [globalMonthlyContribution, setGlobalMonthlyContribution] = useState<number>(500); 
   const [globalContributionFrequency, setGlobalContributionFrequency] = useState<string>('monthly');
-  const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(5.0); // Default 5%
+  const [investmentReturnRate, setInvestmentReturnRate] = useState<number>(5.0); 
   const [modelSeparateInvestment, setModelSeparateInvestment] = useState<boolean>(true);
   const [globalReinvest, setGlobalReinvest] = useState<boolean>(true);
+
+  const [comparisonMetric, setComparisonMetric] = useState<ComparisonMetric>('profit');
 
   const [viewScheduleId, setViewScheduleId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -92,7 +96,7 @@ function App() {
       isRentOnly: false,
       homeValue: DEFAULT_GLOBAL_FMV,
       lockFMV: false,
-      loanAmount: 450000, // Manual 450k
+      loanAmount: 450000, 
       lockLoan: true,
       interestRate: 5.75,
       loanTermYears: 30,
@@ -110,7 +114,7 @@ function App() {
       homeInsurance: 1500,
       hoa: 0,
       pmi: 0,
-      taxRefundRate: 20, // 20%
+      taxRefundRate: 20, 
       downPayment: 0,
       closingCosts: 0,
       sellingCostRate: 6,
@@ -224,10 +228,10 @@ function App() {
       rentIncreasePerYear: 0,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true, // Manual
-      investmentCapital: 0, // 0 Start
-      investmentRate: 4,    // 4% Rate
-      investmentMonthly: 0, // 0 Monthly
+      lockInvestment: true, 
+      investmentCapital: 0, 
+      investmentRate: 4,    
+      investmentMonthly: 0, 
       investmentContributionFrequency: 'monthly',
       investMonthlySavings: true,
       capitalGainsTaxRate: 20
@@ -294,8 +298,6 @@ function App() {
         if (useGlobalRent && !s.lockRent) updates.rentMonthly = globalRent;
         if (useGlobalRent && !s.lockRentIncome && !s.isRentOnly && !s.isInvestmentOnly) updates.rentalIncome = globalRent;
         
-        // Investment Sync Logic:
-        // If !lockInvestment (Global Mode), sync all investment fields from Global.
         if (!s.lockInvestment) {
              updates.investmentCapital = globalCashInvestment;
              updates.investmentMonthly = globalMonthlyContribution;
@@ -313,7 +315,7 @@ function App() {
 
   const calculatedData: CalculatedLoan[] = useMemo(() => {
     const investmentCashToPass = modelSeparateInvestment ? globalCashInvestment : 0;
-    const investmentMonthlyToPass = modelSeparateInvestment ? globalMonthlyContribution : 0; // PASS RAW AMOUNT
+    const investmentMonthlyToPass = modelSeparateInvestment ? globalMonthlyContribution : 0;
     const effectiveAppreciation = growthEnabled ? appreciationRate : 0;
     
     let baselinePayment: number | undefined = undefined;
@@ -349,18 +351,34 @@ function App() {
 
   const winnerId = useMemo(() => {
       if (calculatedData.length === 0) return null;
-      return calculatedData.reduce((prev, current) => (prev.profit > current.profit) ? prev : current).id;
-  }, [calculatedData]);
+      
+      return calculatedData.reduce((prev, current) => {
+          let prevVal, currVal;
+          
+          if (comparisonMetric === 'profit') {
+              prevVal = prev.profit;
+              currVal = current.profit;
+              return prevVal > currVal ? prev : current;
+          } else if (comparisonMetric === 'netWorth') {
+              prevVal = prev.netWorth;
+              currVal = current.netWorth;
+              return prevVal > currVal ? prev : current;
+          } else {
+              // Net Cost (True Cost) - Lower is better
+              prevVal = prev.netCost;
+              currVal = current.netCost;
+              return prevVal < currVal ? prev : current;
+          }
+      }).id;
+  }, [calculatedData, comparisonMetric]);
 
   const updateScenario = (id: string, updates: Partial<LoanScenario>) => {
-    // If switching TO Global Mode (lock=false), sync immediately
     if (updates.lockInvestment === false) {
        updates.investmentCapital = globalCashInvestment;
        updates.investmentMonthly = globalMonthlyContribution;
        updates.investmentRate = investmentReturnRate;
        updates.investmentContributionFrequency = globalContributionFrequency as any;
     }
-    // If switching TO Manual Mode (lock=true), snapshot current global values into local state
     if (updates.lockInvestment === true) {
        updates.investmentCapital = globalCashInvestment;
        updates.investmentMonthly = globalMonthlyContribution;
@@ -375,7 +393,6 @@ function App() {
         updates.rentalIncome = globalRent;
     }
     
-    // Snap to global values immediately when unlocking FMV or Loan
     if (updates.lockFMV === false) {
         updates.homeValue = globalFMV;
     }
@@ -402,6 +419,7 @@ function App() {
     setScenarios(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   };
   
+  // ... (addScenario, duplicate, import logic same as before) ...
   const addScenario = () => {
     if (scenarios.length >= 10) return;
     const newId = generateId();
@@ -526,13 +544,12 @@ function App() {
   const inputClass = theme === 'light' ? 'bg-white border-gray-300' : 'bg-black/30 border-gray-600 text-white';
 
   const calcInvestmentResult = useMemo(() => {
-      // Use centralized calculation engine for widget
       const result = calculateInvestmentPortfolio(
           globalCashInvestment,
           globalMonthlyContribution,
           globalContributionFrequency,
           investmentReturnRate,
-          effectiveProjectionYears, // Sync with global horizon
+          effectiveProjectionYears,
           globalReinvest
       );
       
@@ -573,6 +590,7 @@ function App() {
       {isHeaderExpanded && (
         <div className={`border-b transition-colors duration-300 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-neutral-900 border-gray-700'}`}>
             <div className="max-w-7xl mx-auto px-4 py-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                {/* ... (Global Market Data & Investment Calculator Sections - same as before) ... */}
                 <div className={`rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-700'}`}>
                      <button 
                         onClick={() => setIsGlobalsOpen(!isGlobalsOpen)}
@@ -886,6 +904,30 @@ function App() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Metric Toggle */}
+        <div className="max-w-3xl mx-auto mb-6 flex justify-center">
+            <div className={`flex p-1 rounded-xl border ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/20 border-gray-700'}`}>
+                <button
+                    onClick={() => setComparisonMetric('profit')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'profit' ? (theme === 'light' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
+                >
+                    <BarChart3 size={14} /> Profit / ROI
+                </button>
+                <button
+                    onClick={() => setComparisonMetric('netWorth')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'netWorth' ? (theme === 'light' ? 'bg-blue-50 text-blue-600 border border-blue-200 shadow-sm' : 'bg-blue-900/30 text-blue-400 border border-blue-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
+                >
+                    <Wallet size={14} /> Net Worth
+                </button>
+                <button
+                    onClick={() => setComparisonMetric('netCost')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'netCost' ? (theme === 'light' ? 'bg-red-50 text-red-600 border border-red-200 shadow-sm' : 'bg-red-900/30 text-red-400 border border-red-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
+                >
+                    <ShieldCheck size={14} /> Lowest Cost
+                </button>
+            </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-6 mb-8 items-start max-w-3xl mx-auto">
           {scenarios.map((scenario) => {
             const calculated = calculatedData.find(c => c.id === scenario.id);
@@ -910,6 +952,7 @@ function App() {
                     globalMonthlyContribution,
                     globalContributionFrequency
                 }}
+                comparisonMetric={comparisonMetric}
               />
             );
           })}
@@ -951,8 +994,10 @@ function App() {
                 <p className={`${theme === 'light' ? 'text-gray-500' : 'text-gray-400'} text-sm`}>Comparison based on Net Worth and Cost over {effectiveProjectionYears.toFixed(1)} years.</p>
             </div>
           </div>
-          <ComparisonCharts scenarios={scenarios} calculatedData={calculatedData} theme={theme} />
+          <ComparisonCharts scenarios={scenarios} calculatedData={calculatedData} theme={theme} metric={comparisonMetric} />
         </div>
+
+        <VerdictSummary scenarios={scenarios} calculatedData={calculatedData} theme={theme} />
 
       </main>
 
