@@ -97,7 +97,7 @@ function App() {
       homeValue: DEFAULT_GLOBAL_FMV,
       lockFMV: false,
       loanAmount: 450000, 
-      lockLoan: true,
+      lockLoan: true, // Manual
       interestRate: 5.75,
       loanTermYears: 30,
       yearsRemaining: 28,
@@ -228,7 +228,7 @@ function App() {
       rentIncreasePerYear: 0,
       rentIncludeTax: true,
       rentTaxRate: 25,
-      lockInvestment: true, 
+      lockInvestment: true, // Manual
       investmentCapital: 0, 
       investmentRate: 4,    
       investmentMonthly: 0, 
@@ -419,7 +419,6 @@ function App() {
     setScenarios(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   };
   
-  // ... (addScenario, duplicate, import logic same as before) ...
   const addScenario = () => {
     if (scenarios.length >= 10) return;
     const newId = generateId();
@@ -549,7 +548,7 @@ function App() {
           globalMonthlyContribution,
           globalContributionFrequency,
           investmentReturnRate,
-          effectiveProjectionYears,
+          effectiveProjectionYears, 
           globalReinvest
       );
       
@@ -590,7 +589,6 @@ function App() {
       {isHeaderExpanded && (
         <div className={`border-b transition-colors duration-300 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-neutral-900 border-gray-700'}`}>
             <div className="max-w-7xl mx-auto px-4 py-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                {/* ... (Global Market Data & Investment Calculator Sections - same as before) ... */}
                 <div className={`rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-700'}`}>
                      <button 
                         onClick={() => setIsGlobalsOpen(!isGlobalsOpen)}
@@ -904,30 +902,7 @@ function App() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Metric Toggle */}
-        <div className="max-w-3xl mx-auto mb-6 flex justify-center">
-            <div className={`flex p-1 rounded-xl border ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/20 border-gray-700'}`}>
-                <button
-                    onClick={() => setComparisonMetric('profit')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'profit' ? (theme === 'light' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
-                >
-                    <BarChart3 size={14} /> Profit / ROI
-                </button>
-                <button
-                    onClick={() => setComparisonMetric('netWorth')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'netWorth' ? (theme === 'light' ? 'bg-blue-50 text-blue-600 border border-blue-200 shadow-sm' : 'bg-blue-900/30 text-blue-400 border border-blue-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
-                >
-                    <Wallet size={14} /> Net Worth
-                </button>
-                <button
-                    onClick={() => setComparisonMetric('netCost')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'netCost' ? (theme === 'light' ? 'bg-red-50 text-red-600 border border-red-200 shadow-sm' : 'bg-red-900/30 text-red-400 border border-red-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
-                >
-                    <ShieldCheck size={14} /> Lowest Cost
-                </button>
-            </div>
-        </div>
-
+        
         <div className="grid grid-cols-1 gap-6 mb-8 items-start max-w-3xl mx-auto">
           {scenarios.map((scenario) => {
             const calculated = calculatedData.find(c => c.id === scenario.id);
@@ -994,7 +969,30 @@ function App() {
                 <p className={`${theme === 'light' ? 'text-gray-500' : 'text-gray-400'} text-sm`}>Comparison based on Net Worth and Cost over {effectiveProjectionYears.toFixed(1)} years.</p>
             </div>
           </div>
-          <ComparisonCharts scenarios={scenarios} calculatedData={calculatedData} theme={theme} metric={comparisonMetric} />
+          <ComparisonCharts scenarios={scenarios} calculatedData={calculatedData} theme={theme} comparisonMetric={comparisonMetric} />
+          
+          <div className="max-w-3xl mx-auto mt-6 flex justify-center">
+            <div className={`flex p-1 rounded-xl border ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/20 border-gray-700'}`}>
+                <button
+                    onClick={() => setComparisonMetric('profit')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'profit' ? (theme === 'light' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
+                >
+                    <BarChart3 size={14} /> Profit / ROI
+                </button>
+                <button
+                    onClick={() => setComparisonMetric('netWorth')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'netWorth' ? (theme === 'light' ? 'bg-blue-50 text-blue-600 border border-blue-200 shadow-sm' : 'bg-blue-900/30 text-blue-400 border border-blue-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
+                >
+                    <Wallet size={14} /> Net Worth
+                </button>
+                <button
+                    onClick={() => setComparisonMetric('netCost')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${comparisonMetric === 'netCost' ? (theme === 'light' ? 'bg-red-50 text-red-600 border border-red-200 shadow-sm' : 'bg-red-900/30 text-red-400 border border-red-800') : (theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200')}`}
+                >
+                    <ShieldCheck size={14} /> Lowest Cost
+                </button>
+            </div>
+        </div>
         </div>
 
         <VerdictSummary scenarios={scenarios} calculatedData={calculatedData} theme={theme} />
