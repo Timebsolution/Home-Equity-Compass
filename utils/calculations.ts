@@ -142,7 +142,7 @@ export const calculateLoan = (
           params.contribution, 
           params.frequency, 
           params.rate, 
-          years,
+          years, // Syncs strictly with Horizon
           scenario.investMonthlySavings
       );
   };
@@ -183,6 +183,8 @@ export const calculateLoan = (
       
       const finalInv = getInvestmentResult(horizonYears);
       const totalGain = finalInv.interestEarned;
+      
+      // For Investment Only, OOP includes contributions
       const totalInvestedAmount = finalInv.totalContributed; 
       
       const effectiveAnnualReturn = (horizonYears > 0 && totalInvestedAmount > 0)
@@ -287,7 +289,7 @@ export const calculateLoan = (
                 investmentValue: inv.finalValue,
                 netWorth: inv.finalValue,
                 netCost: accumulatedRentCost,
-                totalGain: inv.interestEarned
+                totalGain: inv.interestEarned - accumulatedRentCost // Net Profit (Interest - Rent Cost) for Chart
             });
         }
         
@@ -301,11 +303,11 @@ export const calculateLoan = (
     // OOP = Rent Paid + Investment Contributions
     const totalInvestedAmount = totalRentPaid + finalInv.totalReplenished;
     
-    // Profit = Investment Interest
-    const profit = Math.max(0, finalInv.interestEarned);
+    // Profit = Investment Interest - Rent Paid (NEGATIVE for most renters)
+    const profit = finalInv.interestEarned - totalRentPaid;
     
-    // Net Cost = Rent Paid - Profit
-    const netCost = totalRentPaid - profit;
+    // Net Cost = Rent Paid - Investment Interest
+    const netCost = totalRentPaid - finalInv.interestEarned;
 
     const effectiveAnnualReturn = (horizonYears > 0 && totalInvestedAmount > 0)
         ? (profit / totalInvestedAmount) / horizonYears * 100
@@ -542,8 +544,11 @@ export const calculateLoan = (
           const equityAtYear = futureVal - currentTotalBalance;
           const equityGain = equityAtYear - initialEquity; 
           
-          // Pure Housing Gain for Chart
+          // Pure Housing Gain for Chart (Excludes investment)
           const totalGain = equityGain + accumulatedTaxRefund + accumulatedGrossRentalIncome - closingCosts - accumulatedRentalTax;
+
+          // Accumulated Net Cost includes Down Payment for correct "Lowest Cost" plotting
+          const currentNetCost = accumulatedPaid + scenario.downPayment + closingCosts;
 
           annualData.push({
               label,
@@ -552,7 +557,7 @@ export const calculateLoan = (
               returnedCapital: initialEquity,
               investmentValue: 0, 
               netWorth: equityAtYear,
-              netCost: accumulatedPaid, 
+              netCost: currentNetCost, 
               totalGain: totalGain
           });
       }
@@ -580,13 +585,13 @@ export const calculateLoan = (
   // Costs to Sell
   const sellingCostsAtHorizon = futureHomeValue * (sellingCostRate / 100);
 
-  // Capital Gains Tax (Strictly < 24 months)
+  // Capital Gains Tax
+  // Logic: Removed the 24 month restriction to allow user to simulate tax at any horizon
+  // if they set the rate > 0. The label is "Capital Gains Tax %".
   let capitalGainsTax = 0;
-  if (horizonMonths < 24) { 
-      const flipProfit = (futureHomeValue - scenario.homeValue) - sellingCostsAtHorizon - closingCosts;
-      if (flipProfit > 0) {
-          capitalGainsTax = flipProfit * ((scenario.capitalGainsTaxRate || 20) / 100);
-      }
+  const flipProfit = (futureHomeValue - scenario.homeValue) - sellingCostsAtHorizon - closingCosts;
+  if (flipProfit > 0) {
+      capitalGainsTax = flipProfit * ((scenario.capitalGainsTaxRate || 0) / 100);
   }
   
   // Net Cash After Sale = Gross Equity - Selling Costs - Capital Gains Tax
@@ -621,8 +626,7 @@ export const calculateLoan = (
                   - capitalGainsTax;
 
   // 4. ANNUAL RETURN (Simple Annualized ROI)
-  // (Profit / Out-of-Pocket) / Years * 100
-  // Note: If OOP is negative (positive cash flow), ROI can be misleading, but sticking to formula.
+  // Formula: (Total Profit / Total OOP) / Years
   const effectiveAnnualReturn = (horizonYears > 0 && simpleTotalInvested !== 0)
     ? (totalGain / simpleTotalInvested) / horizonYears * 100
     : 0;
@@ -639,8 +643,23 @@ export const calculateLoan = (
   let lifetimeInterestSaved = 0;
   let monthsSaved = 0;
 
+  // Simplified interest saving calc for extra payments
   if (scenario.monthlyExtraPayment > 0 || scenario.oneTimeExtraPayment > 0 || (scenario.manualExtraPayments && Object.keys(scenario.manualExtraPayments).length > 0)) {
-      // Logic for interest saved omitted for brevity
+        // Calculate baseline interest (no extra payments)
+        let b1 = scenario.loanAmount;
+        let baselineInterest = 0;
+        const totalMonths = (scenario.yearsRemaining * 12) + scenario.monthsRemaining;
+        
+        for(let i=0; i<totalMonths; i++) {
+            if(b1 > 0) {
+                const int = b1 * monthlyRate1;
+                baselineInterest += int;
+                const prin = monthlyPI1 - int;
+                b1 -= prin;
+            }
+        }
+        lifetimeInterestSaved = baselineInterest - accumulatedInterest;
+        monthsSaved = Math.max(0, totalMonths - actualPayoffMonth);
   }
 
   return {
