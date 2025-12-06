@@ -11,7 +11,8 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
-  Label
+  Label,
+  ReferenceLine
 } from 'recharts';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
@@ -27,32 +28,47 @@ interface ComparisonChartsProps {
 const CustomTooltip = ({ active, payload, label, theme }: any) => {
   if (active && payload && payload.length) {
     const isDark = theme !== 'light';
-    const bgClass = isDark ? 'bg-neutral-900 border-gray-700 text-gray-100' : 'bg-white border-gray-200 text-gray-900';
     
-    // Filter out zero values to clean up the tooltip
-    const items = payload.filter((p: any) => Math.abs(p.value) > 0);
-    const total = items.reduce((sum: number, item: any) => sum + item.value, 0);
+    // Explicit inline style to ensure solid opacity
+    const tooltipStyle: React.CSSProperties = {
+        backgroundColor: isDark ? '#0f172a' : '#ffffff', // slate-900 : white
+        borderColor: isDark ? '#334155' : '#e5e7eb',
+        opacity: 1
+    };
+    
+    const textClass = isDark ? 'text-gray-100' : 'text-gray-900';
+    
+    // Sort payload so positives are first, then negatives
+    const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
 
-    if (items.length === 0) return null;
+    // Calculate Net (Total Height)
+    const total = payload.reduce((sum: number, item: any) => sum + item.value, 0);
 
     return (
-      <div className={`p-3 rounded-xl shadow-2xl border ${bgClass} text-xs z-50 min-w-[200px]`}>
+      <div 
+        className={`p-3 rounded-xl shadow-2xl border ${textClass} text-xs min-w-[200px]`}
+        style={tooltipStyle}
+      >
         <p className="font-bold mb-2 text-sm border-b border-dashed border-gray-400/30 pb-1">{label}</p>
-        <div className="space-y-1.5">
-          {items.map((entry: any, index: number) => (
-            <div key={index} className="flex items-center gap-3 justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: entry.color }} />
-                <span className="opacity-80 font-medium">{entry.name}</span>
-              </div>
-              <span className="font-mono font-bold">{formatCurrency(entry.value)}</span>
-            </div>
-          ))}
+        <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+          {sortedPayload.map((entry: any, index: number) => {
+             // Skip near-0 values
+             if (Math.abs(entry.value) < 1) return null;
+             return (
+                <div key={index} className="flex items-center gap-3 justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: entry.color || entry.fill || entry.stroke }} />
+                    <span className="opacity-80 font-medium">{entry.name}</span>
+                </div>
+                <span className={`font-mono font-bold ${entry.value < 0 ? 'text-red-500' : 'text-emerald-500'}`}>{formatCurrency(entry.value)}</span>
+                </div>
+             );
+          })}
         </div>
         {/* Total Summary Line */}
         <div className="mt-2 pt-2 border-t border-gray-400/30 flex justify-between items-center">
-            <span className="font-bold opacity-70">Total Wealth</span>
-            <span className="font-mono font-extrabold text-brand-500">{formatCurrency(total)}</span>
+            <span className="font-bold opacity-70">Net Profit / Wealth</span>
+            <span className={`font-mono font-extrabold ${total >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{formatCurrency(total)}</span>
         </div>
       </div>
     );
@@ -62,40 +78,73 @@ const CustomTooltip = ({ active, payload, label, theme }: any) => {
 
 export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, calculatedData, theme, comparisonMetric }) => {
   
-  // Bar Chart Data (Composition of Wealth)
+  // Bar Chart Data (Cash Flow -> Asset Value)
   const compositionData = scenarios.map(s => {
       const c = calculatedData.find(cd => cd.id === s.id);
       if (!c) return { name: s.name };
       
-      // For Buy/Refi, we hide "Initial Capital" (Side Investment Principal) from the stack
-      // to prevent the visual confusion of "Double Counting" side cash as housing equity.
-      const initialCapital = (s.isRentOnly || s.isInvestmentOnly) ? c.totalInvestmentContribution : 0;
+      // --- INFLOWS / ASSETS (Positive Stack) ---
       
-      const downPayment = (!s.isRentOnly && !s.isInvestmentOnly) ? (s.downPayment || 0) : 0;
-      const principalPaid = (!s.isRentOnly && !s.isInvestmentOnly) ? c.principalPaid : 0;
-      const appreciation = (!s.isRentOnly && !s.isInvestmentOnly) ? c.totalAppreciation : 0;
-      const taxRefund = (!s.isRentOnly && !s.isInvestmentOnly) ? c.taxRefund : 0;
-      const rawRentalIncome = (!s.isRentOnly && !s.isInvestmentOnly) ? (c.accumulatedRentalIncome - (c.totalRentalTax || 0)) : 0;
-      const rentalIncome = Math.max(0, rawRentalIncome);
+      // 1. Home Appreciation (Growth only)
+      const appreciation = c.totalAppreciation;
       
-      // Investment Profit is shown for Investment/Rent modes.
-      // For Buy modes, it is hidden from the main stack to keep the view "Housing Focused".
-      let investmentProfit = 0;
-      if (s.isInvestmentOnly || s.isRentOnly) {
-          investmentProfit = c.profit;
-      } else {
-          investmentProfit = 0; 
-      }
+      // 2. Investment Gains (Profit Only)
+      const invGain = Math.max(0, c.investmentPortfolio - c.totalInvestmentContribution - (c.initialCapitalBase || 0));
+      
+      // 3. Rental Income
+      const rentIncome = c.accumulatedRentalIncome;
+      
+      // 4. Tax Refunds
+      const taxRefund = c.taxRefund;
 
+      // 5. Principal Paid (Equity Acquired)
+      const principalAcquired = c.principalPaid;
+
+      // 6. Investment Contributions (Basis Acquired)
+      const invBasis = c.totalInvestmentContribution + (c.initialCapitalBase || 0);
+
+      // --- OUTFLOWS / COSTS (Negative Stack) ---
+      
+      // 1. Mortgage Interest
+      const interest = -c.totalInterest;
+      
+      // 2. Property Upkeep (Taxes, Ins, HOA, PMI, Maint)
+      const upkeep = -(c.totalPropertyCosts + c.totalCustomExpenses);
+
+      // 3. Transaction Costs (Closing, Selling, Loan Fees)
+      const transaction = -(
+          (s.closingCosts || 0) + 
+          (s.customClosingCosts?.reduce((a,b)=>a+b.amount,0)||0) + 
+          c.totalLoanFees + 
+          c.sellingCosts
+      );
+
+      // 4. Taxes (Capital Gains, Rental, Investment)
+      const taxes = -(c.capitalGainsTax + (c.totalRentalTax || 0) + (c.totalInvestmentTax || 0));
+      
+      // 5. Principal Payment (Cash Outflow)
+      const principalOutflow = -c.principalPaid;
+
+      // 6. Investment Contribution (Cash Outflow)
+      const invOutflow = -(c.totalInvestmentContribution + (c.initialCapitalBase || 0));
+      
       return {
           name: s.name,
-          initialCapital,
-          downPayment,
-          principalPaid,
+          // Gains / Assets
+          principalAcquired,
+          invBasis,
           appreciation,
+          invGain,
+          rentIncome,
           taxRefund,
-          rentalIncome,
-          investmentProfit
+          
+          // Costs / Outflows
+          principalOutflow,
+          invOutflow,
+          interest,
+          upkeep,
+          transaction,
+          taxes
       };
   });
 
@@ -108,13 +157,19 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
           const c = calculatedData.find(cd => cd.id === s.id);
           if (c && c.annualData[index]) {
               if (comparisonMetric === 'profit') {
-                  // Plots Profit / Loss (negative allowed for Rent)
-                  chartPoint[s.name] = c.annualData[index].totalGain;
+                  chartPoint[s.name] = c.annualData[index].netProfit;
               } else if (comparisonMetric === 'netWorth') {
                   chartPoint[s.name] = c.annualData[index].netWorth;
+              } else if (comparisonMetric === 'equity') {
+                  chartPoint[s.name] = c.annualData[index].homeEquity || 0;
+              } else if (comparisonMetric === 'outOfPocket') {
+                  chartPoint[s.name] = -(c.annualData[index].outOfPocket || 0);
+              } else if (comparisonMetric === 'cashFlow') {
+                  // For Cash Flow, we add TWO keys per scenario to split line
+                  chartPoint[`${s.name} Inflow`] = c.annualData[index].cumulativeInflow;
+                  chartPoint[`${s.name} Outflow`] = -c.annualData[index].cumulativeOutflow; // Flip to negative
               } else {
-                  // Plot NEGATIVE cost to show "drain" / outflow
-                  chartPoint[s.name] = -c.annualData[index].netCost;
+                  chartPoint[s.name] = -(c.annualData[index].netCost);
               }
           }
       });
@@ -124,7 +179,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
   const isDark = theme !== 'light';
   const textColor = isDark ? '#e5e7eb' : '#374151'; 
   const gridColor = isDark ? '#404040' : '#f3f4f6'; 
-  const tooltipBg = isDark ? '#171717' : '#ffffff';
+  const tooltipBg = isDark ? '#0a0a0a' : '#ffffff';
 
   let chartTitle = "Net Worth Trajectory";
   let chartSubtitle = "Total Assets (Home Equity + Investments) Over Time.";
@@ -134,10 +189,22 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       chartTitle = "Net Profit / Loss Trajectory";
       chartSubtitle = "Accumulated Wealth Generated minus Costs incurred.";
       yAxisLabel = "Net Profit ($)";
+  } else if (comparisonMetric === 'equity') {
+      chartTitle = "Home Equity Accumulation";
+      chartSubtitle = "Total Property Equity (Market Value - Loan Balance).";
+      yAxisLabel = "Equity ($)";
   } else if (comparisonMetric === 'netCost') {
-      chartTitle = "Cumulative Cost Trajectory";
-      chartSubtitle = "Total Net Cost Incurred Over Time.";
-      yAxisLabel = "Cost (Negative = Outflow)";
+      chartTitle = "Cumulative True Cost Trajectory";
+      chartSubtitle = "Net Cost Incurred (After Equity/Sales).";
+      yAxisLabel = "Cost (Negative = Drain)";
+  } else if (comparisonMetric === 'outOfPocket') {
+      chartTitle = "Cumulative Cash Out-of-Pocket";
+      chartSubtitle = "Total Cash Paid Over Time.";
+      yAxisLabel = "Cash Paid (Negative)";
+  } else if (comparisonMetric === 'cashFlow') {
+      chartTitle = "Inflow vs Outflow";
+      chartSubtitle = "Solid: Cumulative Income/Assets. Dashed: Cumulative Expenses/Costs.";
+      yAxisLabel = "Cumulative Value ($)";
   }
 
   return (
@@ -171,47 +238,95 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
                 labelFormatter={(label) => `${label}`}
                 cursor={{stroke: textColor}}
                 contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: tooltipBg, color: isDark ? 'white' : 'black'}}
+                wrapperStyle={{ zIndex: 1000 }}
               />
               <Legend wrapperStyle={{color: textColor}} />
-              {scenarios.map(s => (
-                  <Line 
-                    key={s.id} 
-                    type="monotone" 
-                    dataKey={s.name} 
-                    stroke={s.color} 
-                    strokeWidth={3} 
-                    dot={false} 
-                    activeDot={{ r: 6 }}
-                  />
-              ))}
+              <ReferenceLine y={0} stroke={textColor} strokeWidth={1} strokeOpacity={0.5} />
+              
+              {scenarios.map(s => {
+                  if (comparisonMetric === 'cashFlow') {
+                       return (
+                           <React.Fragment key={s.id}>
+                               <Line 
+                                    type="monotone" 
+                                    dataKey={`${s.name} Inflow`} 
+                                    name={`${s.name} (In)`}
+                                    stroke={s.color} 
+                                    strokeWidth={2} 
+                                    dot={false} 
+                                    activeDot={{ r: 4 }}
+                                />
+                                <Line 
+                                    type="monotone" 
+                                    dataKey={`${s.name} Outflow`} 
+                                    name={`${s.name} (Out)`}
+                                    stroke={s.color} 
+                                    strokeWidth={2} 
+                                    strokeDasharray="4 4" // Dashed for Expenses/Outflows
+                                    dot={false} 
+                                    activeDot={{ r: 4 }}
+                                />
+                           </React.Fragment>
+                       );
+                  }
+                  return (
+                    <Line 
+                        key={s.id} 
+                        type="monotone" 
+                        dataKey={s.name} 
+                        stroke={s.color} 
+                        strokeWidth={3} 
+                        dot={false} 
+                        activeDot={{ r: 6 }}
+                    />
+                  );
+              })}
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Bar Chart: Wealth Breakdown */}
+      {/* Bar Chart: Profit Breakdown */}
       <div className={`p-6 rounded-2xl shadow-lg border flex flex-col ${theme === 'light' ? 'bg-white border-gray-100' : 'bg-white/5 border-gray-700'}`}>
-        <h3 className={`text-lg font-bold mb-1 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Total Wealth Breakdown</h3>
-        <p className="text-xs text-gray-500 mb-4">Composition of Assets & Accumulated Cash Benefits.</p>
+        <h3 className={`text-lg font-bold mb-1 ${theme === 'light' ? 'text-gray-800' : 'text-gray-100'}`}>Flows of Wealth</h3>
+        <p className="text-xs text-gray-500 mb-4">
+            Top: Assets & Income (Gains). Bottom: Expenses & Outflows.
+            <br/>
+            <span className="opacity-70 italic">Net Height Difference = Total Profit Generated.</span>
+        </p>
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={compositionData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+            {/* stackOffset="sign" ensures negative values render below zero axis */}
+            <BarChart data={compositionData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }} stackOffset="sign">
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <YAxis tickFormatter={(val) => `$${val/1000}k`} axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <Tooltip 
                 content={<CustomTooltip theme={theme} />}
                 cursor={{fill: isDark ? '#404040' : '#f9fafb'}}
+                wrapperStyle={{ zIndex: 1000 }}
               />
               <Legend wrapperStyle={{color: textColor}} />
               
-              <Bar dataKey="initialCapital" name="Side Invest. Principal" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="downPayment" name="Down Payment (Equity)" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="principalPaid" name="Principal Paid" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="appreciation" name="Appreciation" stackId="a" fill="#14b8a6" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="investmentProfit" name="Investment Growth" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#06b6d4" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="rentalIncome" name="Rental Income (Net)" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              <ReferenceLine y={0} stroke={textColor} strokeOpacity={0.8} strokeWidth={2} />
+
+              {/* POSITIVE STACK (INFLOWS / ASSETS) */}
+              <Bar dataKey="appreciation" name="Home Appreciation" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="principalAcquired" name="Principal Paid (Equity)" stackId="a" fill="#2dd4bf" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="invBasis" name="Inv. Basis (Principal)" stackId="a" fill="#c084fc" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="invGain" name="Investment Gains" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="rentIncome" name="Rental Income" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="taxRefund" name="Tax Refunds" stackId="a" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+
+              {/* NEGATIVE STACK (OUTFLOWS / COSTS) */}
+              <Bar dataKey="interest" name="Mortgage Interest" stackId="a" fill="#ef4444" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="upkeep" name="Prop. Taxes & Maint" stackId="a" fill="#f97316" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="taxes" name="Inc/CapGains Tax" stackId="a" fill="#b91c1c" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="transaction" name="Closing/Selling Fees" stackId="a" fill="#64748b" radius={[0, 0, 0, 0]} />
+              
+              {/* Transfers (Outflows matching Assets) */}
+              <Bar dataKey="principalOutflow" name="Principal Cost" stackId="a" fill="#115e59" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="invOutflow" name="Inv. Contribution" stackId="a" fill="#581c87" radius={[0, 0, 4, 4]} />
               
             </BarChart>
           </ResponsiveContainer>
