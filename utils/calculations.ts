@@ -1,5 +1,5 @@
 
-import { LoanScenario, CalculatedLoan, AmortizationPoint, AnnualDataPoint } from '../types';
+import { LoanScenario, CalculatedLoan, AmortizationPoint, AnnualDataPoint, AdditionalLoan, LoanBreakdown } from '../types';
 
 export const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -7,6 +7,15 @@ export const formatCurrency = (value: number): string => {
     currency: 'USD',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
+  }).format(value);
+};
+
+export const formatNumber = (value: number, maxDecimals: number = 3): string => {
+  if (value === undefined || value === null || isNaN(value)) return '';
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+    useGrouping: true
   }).format(value);
 };
 
@@ -34,6 +43,44 @@ export const convertToMonthlyContribution = (amount: number, frequency: string):
         case 'annually': return amount / 12;
         default: return amount;
     }
+};
+
+// Calculate current balance based on amortization from a start date
+export const calculateCurrentBalance = (
+    originalBalance: number,
+    annualRate: number,
+    termYears: number,
+    startDateStr?: string
+): number => {
+    if (!startDateStr) return originalBalance;
+
+    const start = new Date(startDateStr);
+    const now = new Date();
+    // Calculate full months elapsed (approximate, simple difference)
+    let months = (now.getFullYear() - start.getFullYear()) * 12;
+    months -= start.getMonth();
+    months += now.getMonth();
+    
+    // If loan is in the future, balance is original
+    if (months <= 0) return originalBalance;
+
+    const monthlyRate = annualRate / 100 / 12;
+    const totalMonths = termYears * 12;
+    
+    // If 0% interest
+    if (monthlyRate === 0) {
+        const paid = (originalBalance / totalMonths) * months;
+        return Math.max(0, originalBalance - paid);
+    }
+
+    const factorN = Math.pow(1 + monthlyRate, totalMonths);
+    const factorP = Math.pow(1 + monthlyRate, months);
+
+    // Remaining Balance Formula
+    // B_k = L * [ (1+i)^n - (1+i)^k ] / [ (1+i)^n - 1 ]
+    const balance = originalBalance * (factorN - factorP) / (factorN - 1);
+    
+    return Math.max(0, balance);
 };
 
 // --- CENTRALIZED INVESTMENT ENGINE ---
@@ -96,6 +143,15 @@ export const calculateInvestmentPortfolio = (
     };
 };
 
+const calculateMonthlyPI = (balance: number, rate: number, years: number) => {
+    const monthlyRate = rate / 100 / 12;
+    const months = years * 12;
+    if (months <= 0) return 0;
+    if (balance <= 0) return 0;
+    if (rate === 0) return balance / months;
+    return balance * (monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
+};
+
 export const calculateLoan = (
   scenario: LoanScenario, 
   horizonYears: number,
@@ -106,612 +162,517 @@ export const calculateLoan = (
   globalContributionFrequency: string,
   baselineMonthlyPayment?: number, 
   globalRent?: number, 
-  useGlobalRent?: boolean
+  useGlobalRent?: boolean,
+  globalInvestmentTaxRate?: number
 ): CalculatedLoan => {
-  const horizonMonths = Math.round(horizonYears * 12);
-  const start = new Date(); 
-
-  // Determine chart granularity
-  const useMonthlyPoints = horizonMonths <= 24;
-  const step = useMonthlyPoints ? 1 : 12;
-
-  // Helper for Investment Calculation
-  const getInvestParams = () => {
-      if (scenario.lockInvestment) {
-          // Manual Mode
-          return {
-              principal: scenario.investmentCapital ?? 0,
-              contribution: scenario.investmentMonthly ?? 0,
-              frequency: scenario.investmentContributionFrequency || 'monthly',
-              rate: scenario.investmentRate ?? 0
-          };
-      }
-      // Global Mode
-      return {
-          principal: globalCashInvestment,
-          contribution: globalContributionAmount,
-          frequency: globalContributionFrequency,
-          rate: investmentReturnRate
-      };
-  };
-
-  const getInvestmentResult = (years: number) => {
-      const params = getInvestParams();
-      return calculateInvestmentPortfolio(
-          params.principal, 
-          params.contribution, 
-          params.frequency, 
-          params.rate, 
-          years, // Syncs strictly with Horizon
-          scenario.investMonthlySavings
-      );
-  };
-
-  // --- INVESTMENT ONLY MODE ---
-  if (scenario.isInvestmentOnly) {
-      const annualData: AnnualDataPoint[] = [];
-      const startInv = getInvestmentResult(0);
-      
-      annualData.push({
-          label: 'Start',
-          year: 0,
-          homeEquity: 0,
-          returnedCapital: 0,
-          investmentValue: startInv.finalValue,
-          netWorth: startInv.finalValue,
-          netCost: startInv.totalContributed,
-          totalGain: 0
-      });
-
-      for (let m = 1; m <= horizonMonths; m++) {
-          if (m % step === 0) {
-              const yearFraction = m / 12;
-              const label = useMonthlyPoints ? `Mo ${m}` : `Yr ${Math.round(yearFraction)}`;
-              const inv = getInvestmentResult(yearFraction);
-              annualData.push({
-                  label,
-                  year: yearFraction,
-                  homeEquity: 0,
-                  returnedCapital: 0,
-                  investmentValue: inv.finalValue,
-                  netWorth: inv.finalValue,
-                  netCost: inv.totalContributed,
-                  totalGain: inv.interestEarned
-              });
-          }
-      }
-      
-      const finalInv = getInvestmentResult(horizonYears);
-      const totalGain = finalInv.interestEarned;
-      
-      // For Investment Only, OOP includes contributions
-      const totalInvestedAmount = finalInv.totalContributed; 
-      
-      const effectiveAnnualReturn = (horizonYears > 0 && totalInvestedAmount > 0)
-          ? (totalGain / totalInvestedAmount) / horizonYears * 100
-          : 0;
-
-      return {
-        id: scenario.id,
-        monthlyPrincipalAndInterest: 0,
-        monthlyFirstPI: 0,
-        monthlySecondPI: 0,
-        monthlyTax: 0,
-        monthlyInsurance: 0,
-        monthlyHOA: 0,
-        monthlyPMI: 0,
-        totalMonthlyPayment: 0,
-        netMonthlyPayment: 0, 
-        
-        totalPaid: finalInv.totalReplenished,
-        totalInterest: 0,
-        totalEquityBuilt: 0,
-        taxRefund: 0,
-        netCost: 0, 
-        
-        principalPaid: 0,
-        totalAppreciation: 0,
-        accumulatedRentalIncome: 0,
-        totalRentalTax: 0,
-        totalPropertyCosts: 0,
-
-        futureHomeValue: 0,
-        remainingBalance: 0,
-        equity: 0,
-        
-        netWorth: finalInv.finalValue,
-        investmentPortfolio: finalInv.finalValue,
-        totalInvestmentContribution: finalInv.totalReplenished,
-        
-        profit: totalGain,
-        totalCashInvested: finalInv.totalContributed,
-        averageEquityPerMonth: 0,
-        totalExtraPrincipal: 0,
-
-        payoffDate: 'N/A',
-        amortizationSchedule: [],
-        annualData,
-        
-        totalInvestedAmount,
-        initialCapitalBase: finalInv.startingCapital,
-        effectiveAnnualReturn,
-        lifetimeInterestSaved: 0,
-        monthsSaved: 0,
-        interestSavedAtHorizon: 0,
-        breakEvenMonths: 0,
-        sellingCosts: 0,
-        capitalGainsTax: 0
-      };
-  }
-
-  // --- RENT MODE ---
-  if (scenario.isRentOnly) {
-    let totalRentPaid = 0;
-    let currentRent = scenario.rentMonthly;
-    if (useGlobalRent && !scenario.lockRent && globalRent !== undefined) {
-        currentRent = globalRent;
-    }
+    const horizonMonths = Math.round(horizonYears * 12);
+    const includeHome = scenario.includeHome !== false;
     
-    let effectiveMonthlyRent = currentRent;
-    if (scenario.rentIncludeTax) {
-        effectiveMonthlyRent = currentRent * (1 - scenario.rentTaxRate / 100);
+    // Determine effective input values (Global vs Local locks)
+    // Investment Params
+    let investCapital = globalCashInvestment;
+    let investMonthly = globalContributionAmount;
+    let investFreq = globalContributionFrequency;
+    let investRate = investmentReturnRate;
+    let investTaxRate = globalInvestmentTaxRate || 0;
+
+    if (scenario.lockInvestment) {
+        investCapital = scenario.investmentCapital || 0;
+        investMonthly = scenario.investmentMonthly || 0;
+        investFreq = scenario.investmentContributionFrequency || 'monthly';
+        investRate = scenario.investmentRate || 0;
+        investTaxRate = scenario.investmentTaxRate || 0;
+    }
+    const monthlyInvestContribution = convertToMonthlyContribution(investMonthly, investFreq);
+
+    // Rent Inputs
+    let rentOutInput = scenario.rentMonthly;
+    if (useGlobalRent && !scenario.lockRent) {
+        rentOutInput = globalRent || scenario.rentMonthly;
     }
 
+    let rentInInput = scenario.rentalIncome;
+    if (useGlobalRent && !scenario.lockRentIncome) {
+        rentInInput = globalRent || scenario.rentalIncome;
+    }
+
+    // Initialize State
+    // FMV logic: If originalFmv is set and > 0, use it. Else default to Purchase Price (homeValue).
+    const startFMV = (scenario.originalFmv && scenario.originalFmv > 0) ? scenario.originalFmv : scenario.homeValue;
+    let currentFMV = includeHome ? startFMV : 0;
+    
+    // Instant Equity (Difference between what it's worth vs what you paid)
+    const instantEquity = includeHome ? (startFMV - scenario.homeValue) : 0;
+    
+    // Loan Init
+    // Primary
+    let primaryBal = includeHome ? calculateCurrentBalance(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears, scenario.startDate) : 0;
+    
+    // Additional Loans
+    const subLoans = (scenario.additionalLoans || []).map(l => ({
+        ...l,
+        currentBal: includeHome ? calculateCurrentBalance(l.balance, l.rate, l.years, l.startDate) : 0,
+        monthlyPI: includeHome ? calculateMonthlyPI(l.balance, l.rate, l.years) : 0
+    }));
+
+    let investmentBal = investCapital;
+    
+    // Accumulators
+    let totalPrincipalPaid = 0;
+    let totalInterestPaid = 0;
+    let totalTaxPaid = 0;
+    let totalInsurancePaid = 0;
+    let totalHOAPaid = 0;
+    let totalPMIPaid = 0;
+    let totalCustomPaid = 0;
+    let totalRentalIncome = 0;
+    let totalRentPaid = 0; // New
+    let totalRentalTax = 0;
+    let totalInvestmentTax = 0;
+    let totalInvestmentContribution = 0;
+    let totalTaxRefund = 0;
+    let totalAppreciation = 0;
+    let totalExtraPayments = 0;
+
+    const schedule: AmortizationPoint[] = [];
+    const subSchedules: Record<string, AmortizationPoint[]> = {};
+    subLoans.forEach(l => subSchedules[l.id] = []);
+    
     const annualData: AnnualDataPoint[] = [];
-    let accumulatedRentCost = 0;
-    const startInv = getInvestmentResult(0);
 
-    annualData.push({
-        label: 'Start',
-        year: 0,
-        homeEquity: 0,
-        returnedCapital: 0,
-        investmentValue: startInv.finalValue,
-        netWorth: startInv.finalValue,
-        netCost: 0,
-        totalGain: 0
-    });
-
+    // Monthly Loop
     for (let m = 1; m <= horizonMonths; m++) {
-        totalRentPaid += effectiveMonthlyRent;
-        accumulatedRentCost += effectiveMonthlyRent;
+        const yearIndex = Math.ceil(m / 12);
+        
+        // 1. Property Appreciation (Based on FMV, not Purchase Price)
+        const monthlyAppreciation = currentFMV * (appreciationRate / 100 / 12);
+        currentFMV += monthlyAppreciation;
+        totalAppreciation += monthlyAppreciation;
 
-        if (m % step === 0) {
-            const yearFraction = m / 12;
-            const label = useMonthlyPoints ? `Mo ${m}` : `Yr ${Math.round(yearFraction)}`;
-            const inv = getInvestmentResult(yearFraction);
+        // 2. Loans
+        let monthPrincipal = 0;
+        let monthInterest = 0;
+        let monthExtra = 0;
+        let monthTotalPayment = 0; // P&I + Extra
+
+        // Primary
+        if (primaryBal > 0) {
+            const monthlyRate = scenario.interestRate / 100 / 12;
+            const interest = primaryBal * monthlyRate;
+            let pmt = calculateMonthlyPI(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears);
             
+            // Adjust PMT if paid off
+            if (pmt > primaryBal + interest) pmt = primaryBal + interest;
+            
+            let principal = pmt - interest;
+            
+            // Extra Payments
+            let extra = 0;
+            // Monthly Extra
+            if (m > scenario.extraPaymentDelayMonths) {
+                if (scenario.monthlyExtraPaymentFrequency === 'annually') {
+                    if (m % 12 === 0) extra += scenario.monthlyExtraPayment;
+                } else {
+                    extra += scenario.monthlyExtraPayment;
+                }
+            }
+            // One Time
+            if (m === scenario.oneTimeExtraPaymentMonth) {
+                extra += scenario.oneTimeExtraPayment;
+            }
+            // Annual Lump Sum
+            if ((m - 1) % 12 === scenario.annualLumpSumMonth) {
+                extra += scenario.annualLumpSumPayment;
+            }
+            // Manual Override
+            if (scenario.manualExtraPayments && scenario.manualExtraPayments[m] !== undefined) {
+                extra = scenario.manualExtraPayments[m];
+            }
+
+            if (extra > primaryBal - principal) extra = primaryBal - principal;
+            
+            principal += extra;
+            primaryBal -= principal;
+            if (primaryBal < 0) primaryBal = 0; // safety
+
+            monthPrincipal += principal;
+            monthInterest += interest;
+            monthExtra += extra;
+            monthTotalPayment += (interest + principal); // Includes extra
+        }
+
+        // Sub Loans
+        subLoans.forEach(l => {
+            if (l.currentBal > 0) {
+                const monthlyRate = l.rate / 100 / 12;
+                const interest = l.currentBal * monthlyRate;
+                let pmt = l.monthlyPI;
+                if (pmt > l.currentBal + interest) pmt = l.currentBal + interest;
+                const principal = pmt - interest;
+                
+                l.currentBal -= principal;
+                if (l.currentBal < 0) l.currentBal = 0;
+
+                monthPrincipal += principal;
+                monthInterest += interest;
+                monthTotalPayment += pmt;
+
+                // Sub Schedule recording
+                subSchedules[l.id].push({
+                    monthIndex: m,
+                    date: '', // filled later
+                    balance: l.currentBal,
+                    interest,
+                    principal,
+                    extraPayment: 0,
+                    totalPayment: pmt,
+                    totalInterest: 0, // accum later
+                    totalTaxRefund: 0,
+                    totalPaidToDate: 0,
+                    equity: 0,
+                    accumulatedRentalIncome: 0,
+                    accumulatedRentalTax: 0,
+                    accumulatedPropertyCosts: 0,
+                    customExpenses: 0,
+                    investmentBalance: 0,
+                    investmentTax: 0
+                });
+            } else {
+                 subSchedules[l.id].push({
+                    monthIndex: m, date: '', balance: 0, interest: 0, principal: 0, extraPayment: 0, totalPayment: 0, 
+                    totalInterest: 0, totalTaxRefund: 0, totalPaidToDate: 0, equity: 0, 
+                    accumulatedRentalIncome: 0, accumulatedRentalTax: 0, accumulatedPropertyCosts: 0, 
+                    customExpenses: 0, investmentBalance: 0, investmentTax: 0
+                });
+            }
+        });
+
+        // 3. Expenses
+        let propTax = 0;
+        let ins = 0;
+        let hoa = 0;
+        let pmi = 0;
+        
+        // Property Costs logic with Toggle
+        if (scenario.includePropertyCosts !== false && includeHome) { // Defaults to true, must have home
+            if (!scenario.isRentOnly && !scenario.isInvestmentOnly) {
+                // Property Tax usually based on Assessed Value (Purchase Price initially), 
+                // but strictly speaking assessments lag. We will use Purchase Price (homeValue) for tax base
+                // unless user specifically inputs a fixed amount.
+                // Note: User can toggle rate based vs fixed. 
+                propTax = scenario.propertyTax / 12; 
+                ins = (scenario.homeInsurance || 0) / 12;
+                hoa = (scenario.hoa || 0) / 12;
+                pmi = (scenario.pmi || 0) / 12; 
+            }
+        }
+        
+        let customExp = (scenario.customExpenses || []).reduce((s, e) => s + e.amount, 0);
+
+        totalTaxPaid += propTax;
+        totalInsurancePaid += ins;
+        totalHOAPaid += hoa;
+        totalPMIPaid += pmi;
+        totalCustomPaid += customExp;
+
+        const propertyCosts = propTax + ins + hoa + pmi + customExp;
+
+        // 4. Rent (In or Out)
+        let rentFlow = 0;
+        let rentTax = 0;
+        
+        if (scenario.includeRent !== false) {
+            const flowType = scenario.rentFlowType || (scenario.isRentOnly ? 'outflow' : 'inflow');
+
+            if (flowType === 'outflow') {
+                // Outflow Logic (Expense)
+                const currentRent = rentOutInput * Math.pow(1 + scenario.rentIncreasePerYear/100, (yearIndex-1));
+                rentFlow = -currentRent; 
+                totalRentPaid += currentRent;
+            } else {
+                // Inflow Logic (Income)
+                const currentRent = rentInInput * Math.pow(1 + (scenario.rentIncreasePerYear || 0)/100, (yearIndex-1));
+                if (currentRent > 0) {
+                    rentFlow = currentRent; // Positive flow tracking
+                    totalRentalIncome += currentRent;
+                    if (scenario.rentalIncomeTaxEnabled) {
+                        // Deduct effective property costs for tax calculation
+                        const taxable = currentRent - (propTax + ins + hoa + monthInterest); 
+                        if (taxable > 0) {
+                            rentTax = taxable * (scenario.rentalIncomeTaxRate / 100);
+                            totalRentalTax += rentTax;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Investment
+        // Growth
+        const monthlyInvRate = investRate / 100 / 12;
+        const growth = investmentBal * monthlyInvRate;
+        investmentBal += growth;
+        
+        // Tax on growth (if annually? simplified monthly accrual)
+        const invTax = growth * (investTaxRate / 100);
+        totalInvestmentTax += invTax;
+        investmentBal -= invTax;
+
+        // Contribution
+        let contribution = monthlyInvestContribution;
+        
+        // "Invest the difference" logic
+        if (scenario.isRentOnly && scenario.investMonthlySavings && baselineMonthlyPayment) {
+            const rentCost = (scenario.includeRent !== false && (scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)))
+                ? Math.abs(rentFlow)
+                : 0;
+                
+            const outflow = rentCost + customExp; 
+            const savings = baselineMonthlyPayment - outflow;
+            if (savings > 0) {
+                contribution += savings;
+            }
+        }
+
+        investmentBal += contribution;
+        totalInvestmentContribution += contribution;
+
+        // 6. Tax Refund (Mortgage Interest Deduction)
+        let refund = 0;
+        if (!scenario.isRentOnly && !scenario.isInvestmentOnly) {
+            // Deductible is Interest + Property Tax (if property costs enabled)
+            const deductible = monthInterest + propTax; 
+            refund = deductible * (scenario.taxRefundRate / 100);
+            totalTaxRefund += refund;
+        }
+
+        totalPrincipalPaid += monthPrincipal;
+        totalInterestPaid += monthInterest;
+        totalExtraPayments += monthExtra;
+
+        // Record Point
+        const date = new Date();
+        date.setMonth(date.getMonth() + m);
+        
+        const totalLoanBal = primaryBal + subLoans.reduce((s,l)=>s+l.currentBal,0);
+        
+        schedule.push({
+            monthIndex: m,
+            date: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+            balance: totalLoanBal,
+            interest: monthInterest,
+            principal: monthPrincipal,
+            extraPayment: monthExtra,
+            totalPayment: monthTotalPayment + propertyCosts + (scenario.includeRent !== false && (scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)) ? Math.abs(rentFlow) : 0), // Cash outflow
+            totalInterest: totalInterestPaid,
+            totalTaxRefund: totalTaxRefund,
+            totalPaidToDate: totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalExtraPayments + totalRentPaid,
+            equity: currentFMV - totalLoanBal,
+            accumulatedRentalIncome: totalRentalIncome,
+            accumulatedRentalTax: totalRentalTax,
+            accumulatedPropertyCosts: totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid,
+            customExpenses: customExp,
+            investmentBalance: investmentBal,
+            investmentTax: totalInvestmentTax
+        });
+
+        // Annual Data Point
+        if (m % 12 === 0 || m === horizonMonths) {
+            const closingCostsEffect = (scenario.enableSelling !== false && includeHome) ? (scenario.closingCosts || 0) : 0;
+            const customClosingEffect = (scenario.enableSelling !== false && includeHome) ? (scenario.customClosingCosts?.reduce((s,c)=>s+c.amount,0)||0) : 0;
+            const downPaymentEffect = includeHome ? (scenario.downPayment || 0) : 0;
+
+            const totalOutflow = totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRentalTax + totalInvestmentTax + totalInvestmentContribution + totalRentPaid + closingCostsEffect + customClosingEffect;
+            const totalInflow = totalRentalIncome + totalTaxRefund; 
+
+            const netWorth = (currentFMV - totalLoanBal) + investmentBal;
+            
+            // Out of Pocket
+            const oop = totalOutflow - totalInflow; // Net Cash Spent
+            
+            // Net Cost (True Cost)
+            // Recoverable Equity = (FMV - SellingCosts - Loan)
+            // Note: Selling Costs based on current FMV
+            const sellingCost = (scenario.enableSelling !== false && includeHome) ? (currentFMV * (scenario.sellingCostRate / 100)) : 0;
+            const recoverableEquity = Math.max(0, currentFMV - sellingCost - totalLoanBal);
+            const trueCost = oop - recoverableEquity - investmentBal;
+
             annualData.push({
-                label,
-                year: yearFraction,
-                homeEquity: 0,
+                label: `Year ${Math.ceil(m/12)}`,
+                year: Math.ceil(m/12),
+                homeEquity: currentFMV - totalLoanBal,
+                investmentValue: investmentBal,
                 returnedCapital: 0,
-                investmentValue: inv.finalValue,
-                netWorth: inv.finalValue,
-                netCost: accumulatedRentCost,
-                totalGain: inv.interestEarned - accumulatedRentCost // Net Profit (Interest - Rent Cost) for Chart
+                netWorth: netWorth,
+                netCost: trueCost,
+                totalGain: 0, 
+                // Net profit considers initial instant equity as wealth but doesn't cost anything.
+                // Profit = Net Worth - Total Invested (Down + Closing + Monthly Costs)
+                // Down Payment is based on PURCHASE Price.
+                netProfit: netWorth - (downPaymentEffect + closingCostsEffect + customClosingEffect + totalInvestmentContribution + (scenario.investmentCapital||0)),
+                outOfPocket: oop,
+                trueCost: trueCost,
+                cumulativeInflow: totalInflow + totalAppreciation + instantEquity + (investmentBal - totalInvestmentContribution),
+                cumulativeOutflow: totalOutflow
             });
         }
+    }
+
+    // Wrap up Summary
+    // One time fees
+    const primaryLoanFees = (scenario.primaryLoanExpenses || []).reduce((sum, e) => sum + e.amount, 0);
+    const additionalLoanFees = (scenario.additionalLoans || []).reduce((sum, l) => {
+        return sum + (l.oneTimeExpenses || []).reduce((s, e) => s + e.amount, 0);
+    }, 0);
+    const totalLoanFees = primaryLoanFees + additionalLoanFees;
+    
+    // Final Selling based on FMV
+    const sellingCosts = (scenario.enableSelling !== false && includeHome) ? (currentFMV * (scenario.sellingCostRate / 100)) : 0;
+    const closingCostsFinal = (scenario.enableSelling !== false && includeHome) ? (scenario.closingCosts || 0) : 0;
+    const customClosingFinal = (scenario.enableSelling !== false && includeHome) ? (scenario.customClosingCosts?.reduce((s,c)=>s+c.amount,0)||0) : 0;
+    const downPaymentFinal = includeHome ? (scenario.downPayment || 0) : 0;
+
+    // Capital Gains Tax
+    // Basis = Purchase Price + Improvements (Ignored here)
+    // Gain = Sale Price (FMV) - Selling Costs - Basis
+    let capitalGainsTax = 0;
+    let taxableCapitalGains = 0;
+    let capitalGainsExclusion = 0;
+
+    if (scenario.enableSelling !== false && !scenario.isRentOnly && !scenario.isInvestmentOnly && includeHome) {
+        // Gain is based on Purchase Price vs Current FMV
+        const gain = currentFMV - sellingCosts - scenario.homeValue; 
         
-        if (m % 12 === 0) {
-             effectiveMonthlyRent *= (1 + (scenario.rentIncreasePerYear || 0) / 100);
+        if (gain > 0) {
+            let taxable = gain;
+            if (scenario.primaryResidenceExclusion === true) { 
+                capitalGainsExclusion = 250000; 
+                taxable = Math.max(0, taxable - capitalGainsExclusion);
+            }
+            taxableCapitalGains = taxable;
+            capitalGainsTax = taxable * (scenario.capitalGainsTaxRate / 100);
         }
     }
 
-    const finalInv = getInvestmentResult(horizonYears);
-    
-    // OOP = Rent Paid + Investment Contributions
-    const totalInvestedAmount = totalRentPaid + finalInv.totalReplenished;
-    
-    // Profit = Investment Interest - Rent Paid (NEGATIVE for most renters)
-    const profit = finalInv.interestEarned - totalRentPaid;
-    
-    // Net Cost = Rent Paid - Investment Interest
-    const netCost = totalRentPaid - finalInv.interestEarned;
+    const totalEndLoanBal = primaryBal + subLoans.reduce((s,l)=>s+l.currentBal,0);
 
-    const effectiveAnnualReturn = (horizonYears > 0 && totalInvestedAmount > 0)
-        ? (profit / totalInvestedAmount) / horizonYears * 100
+    // Profit
+    const finalNetWorth = (currentFMV - totalEndLoanBal) + investmentBal;
+    const liquidNetWorth = (Math.max(0, currentFMV - sellingCosts - capitalGainsTax - totalEndLoanBal)) + investmentBal;
+    
+    const totalCashInvested = 
+        downPaymentFinal + 
+        closingCostsFinal + 
+        customClosingFinal +
+        totalLoanFees + 
+        investCapital + 
+        totalInvestmentContribution +
+        (totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRentalTax + totalExtraPayments + totalInvestmentTax + totalRentPaid - totalRentalIncome - totalTaxRefund); // Net Monthly Cash Flow sum
+    
+    const profit = liquidNetWorth - totalCashInvested;
+    const netCost = totalCashInvested - liquidNetWorth;
+
+    // Monthly Averages for UI
+    const totalMonthlyPayment = schedule[0]?.totalPayment || 0; // First month snapshot
+    
+    const monthlyRentEffect = (scenario.includeRent !== false) 
+        ? ((scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)) 
+            ? 0 // It's an expense, so it adds to payment via TotalPayment, doesn't reduce PITI. 
+            : (rentInInput || 0)) // It's income, so it reduces PITI.
         : 0;
+    
+    const primaryPI = includeHome ? calculateMonthlyPI(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears) : 0;
+    const subLoansPI = subLoans.reduce((sum, l) => sum + l.monthlyPI, 0);
+    const monthlyPITI = primaryPI + subLoansPI + ((scenario.includePropertyCosts!==false && includeHome) ? (scenario.propertyTax / 12) + ((scenario.homeInsurance || 0) / 12) + ((scenario.hoa || 0) / 12) + ((scenario.pmi || 0) / 12) : 0);
+    
+    const netMonthlyPayment = monthlyPITI - monthlyRentEffect;
+
+    // Loan Breakdown for chart
+    const loanBreakdown: LoanBreakdown[] = [
+        {
+            id: 'primary',
+            name: 'Primary Loan',
+            principalPaid: totalPrincipalPaid,
+            interestPaid: totalInterestPaid,
+            totalPaid: totalPrincipalPaid + totalInterestPaid + totalExtraPayments,
+            remainingBalance: primaryBal
+        },
+        ...subLoans.map(l => ({
+            id: l.id,
+            name: l.name,
+            principalPaid: (l.balance - l.currentBal), 
+            interestPaid: 0, 
+            totalPaid: 0,
+            remainingBalance: l.currentBal
+        }))
+    ];
 
     return {
         id: scenario.id,
-        monthlyPrincipalAndInterest: 0,
-        monthlyFirstPI: 0,
-        monthlySecondPI: 0,
-        monthlyTax: 0,
-        monthlyInsurance: 0,
-        monthlyHOA: 0,
-        monthlyPMI: 0,
-        totalMonthlyPayment: effectiveMonthlyRent, 
-        netMonthlyPayment: effectiveMonthlyRent, 
+        monthlyPrincipalAndInterest: includeHome ? calculateMonthlyPI(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears) : 0,
+        monthlyFirstPI: 0, // unused
+        monthlyTax: (scenario.includePropertyCosts!==false && includeHome) ? scenario.propertyTax / 12 : 0,
+        monthlyInsurance: (scenario.includePropertyCosts!==false && includeHome) ? (scenario.homeInsurance || 0) / 12 : 0,
+        monthlyHOA: (scenario.includePropertyCosts!==false && includeHome) ? (scenario.hoa || 0) / 12 : 0,
+        monthlyPMI: (scenario.includePropertyCosts!==false && includeHome) ? (scenario.pmi || 0) / 12 : 0,
+        monthlyCustomExpenses: (scenario.customExpenses || []).reduce((s, e) => s + e.amount, 0),
+        totalMonthlyPayment,
+        netMonthlyPayment,
         
-        totalPaid: totalRentPaid,
-        totalInterest: 0,
-        totalEquityBuilt: 0,
-        taxRefund: 0,
-        netCost, 
-        
-        principalPaid: 0,
-        totalAppreciation: 0,
-        accumulatedRentalIncome: 0,
-        totalRentalTax: 0,
-        totalPropertyCosts: 0,
+        totalPaid: totalPrincipalPaid + totalInterestPaid + totalExtraPayments + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRentalTax + totalInvestmentTax + totalRentPaid,
+        totalRentPaid,
 
-        futureHomeValue: 0,
-        remainingBalance: 0,
-        equity: 0,
-        netWorth: finalInv.finalValue, 
-        investmentPortfolio: finalInv.finalValue,
+        totalInterest: totalInterestPaid,
+        totalEquityBuilt: currentFMV - totalEndLoanBal,
+        taxRefund: totalTaxRefund,
+        netCost,
+        
+        principalPaid: totalPrincipalPaid,
+        totalAppreciation,
+        accumulatedRentalIncome: totalRentalIncome,
+        totalRentalTax,
+        totalPropertyCosts: totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid,
+        totalCustomExpenses: totalCustomPaid,
+        totalLoanFees,
+
+        futureHomeValue: currentFMV,
+        remainingBalance: totalEndLoanBal,
+        startingBalance: includeHome ? calculateCurrentBalance(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears, scenario.startDate) : 0,
+        equity: currentFMV - totalEndLoanBal,
+        netWorth: finalNetWorth,
+        investmentPortfolio: investmentBal,
+        instantEquity,
         
         profit,
-        totalCashInvested: 0,
-        totalInvestmentContribution: finalInv.totalReplenished,
+        totalCashInvested,
         averageEquityPerMonth: 0,
-        totalExtraPrincipal: 0,
+        totalExtraPrincipal: totalExtraPayments,
+        totalInvestmentContribution,
+        totalInvestmentTax,
 
-        payoffDate: 'N/A',
-        amortizationSchedule: [],
+        payoffDate: primaryBal === 0 ? schedule.find(p => p.balance === 0)?.date || 'Paid' : 'Not Paid',
+        amortizationSchedule: schedule,
+        subSchedules,
         annualData,
         
-        totalInvestedAmount,
-        initialCapitalBase: finalInv.startingCapital,
-        effectiveAnnualReturn,
-        lifetimeInterestSaved: 0,
+        breakEvenMonths: 0,
+        sellingCosts,
+        capitalGainsTax,
+        taxableCapitalGains,
+        capitalGainsExclusion,
+        
+        totalInvestedAmount: totalCashInvested,
+        initialCapitalBase: investCapital,
+        effectiveAnnualReturn: (profit / totalCashInvested) * 100 / (horizonMonths / 12), // simple annualized ROI
+
+        lifetimeInterestSaved: 0, 
         monthsSaved: 0,
         interestSavedAtHorizon: 0,
-        breakEvenMonths: 0,
-        sellingCosts: 0,
-        capitalGainsTax: 0
-      };
-  }
-
-  // --- BUY MODE (Current Loan / Refi) ---
-  
-  let balance1 = scenario.loanAmount;
-  const monthlyRate1 = scenario.interestRate / 100 / 12;
-  const totalMonthsRemaining1 = (scenario.yearsRemaining * 12) + scenario.monthsRemaining;
-  let monthlyPI1 = 0;
-  if (totalMonthsRemaining1 > 0) {
-      if (monthlyRate1 === 0) {
-          monthlyPI1 = balance1 / totalMonthsRemaining1;
-      } else {
-          monthlyPI1 = balance1 * (monthlyRate1 * Math.pow(1 + monthlyRate1, totalMonthsRemaining1)) / (Math.pow(1 + monthlyRate1, totalMonthsRemaining1) - 1);
-      }
-  }
-
-  let balance2 = scenario.hasSecondLoan ? scenario.secondLoanAmount : 0;
-  const monthlyRate2 = scenario.hasSecondLoan ? (scenario.secondLoanInterestRate / 100 / 12) : 0;
-  const totalMonthsRemaining2 = scenario.hasSecondLoan ? ((scenario.secondLoanYearsRemaining * 12) + scenario.secondLoanMonthsRemaining) : 0;
-  let monthlyPI2 = 0;
-  if (scenario.hasSecondLoan && totalMonthsRemaining2 > 0 && balance2 > 0) {
-      if (monthlyRate2 === 0) {
-          monthlyPI2 = balance2 / totalMonthsRemaining2;
-      } else {
-          monthlyPI2 = balance2 * (monthlyRate2 * Math.pow(1 + monthlyRate2, totalMonthsRemaining2)) / (Math.pow(1 + monthlyRate2, totalMonthsRemaining2) - 1);
-      }
-  }
-
-  const initialTotalLoan = scenario.loanAmount + (scenario.hasSecondLoan ? scenario.secondLoanAmount : 0);
-  const startHomeValue = scenario.homeValue; 
-  const initialEquity = startHomeValue - initialTotalLoan; 
-
-  const annualPropertyTax = scenario.usePropertyTaxRate 
-      ? scenario.homeValue * (scenario.propertyTaxRate / 100)
-      : scenario.propertyTax;
-  
-  const monthlyTax = annualPropertyTax / 12;
-  const monthlyIns = scenario.homeInsurance / 12;
-  const monthlyHOA = scenario.hoa / 12;
-  const baseMonthlyPMI = scenario.pmi / 12;
-  
-  let rawRentalIncome = scenario.rentalIncome || 0;
-  if (useGlobalRent && !scenario.lockRentIncome && globalRent !== undefined) {
-      rawRentalIncome = globalRent;
-  }
-  const currentRentalIncome = Math.max(0, rawRentalIncome);
-  
-  const schedule: AmortizationPoint[] = [];
-  const annualData: AnnualDataPoint[] = [];
-  
-  let accumulatedInterest = 0;
-  let accumulatedPaid = 0; 
-  let accumulatedEquity = 0; 
-  let accumulatedTaxRefund = 0;
-  let accumulatedExtra = 0; 
-  let accumulatedPropertyCosts = 0; 
-  
-  let accumulatedGrossRentalIncome = 0;
-  let accumulatedRentalTax = 0;
-  
-  let currentDate = new Date(start);
-  const simulationMonths = Math.max(horizonMonths, Math.max(totalMonthsRemaining1, totalMonthsRemaining2)); 
-  
-  const closingCosts = scenario.closingCosts || 0; 
-  const sellingCostRate = scenario.sellingCostRate !== undefined ? scenario.sellingCostRate : 6;
-  
-  let actualPayoffMonth = 0;
-  let isPaidOff = false;
-
-  const monthlyExtraBase = convertToMonthlyContribution(scenario.monthlyExtraPayment || 0, scenario.monthlyExtraPaymentFrequency || 'monthly');
-
-  annualData.push({
-      label: 'Start',
-      year: 0,
-      homeEquity: initialEquity,
-      returnedCapital: 0,
-      investmentValue: 0, 
-      netWorth: initialEquity,
-      netCost: scenario.downPayment + closingCosts,
-      totalGain: -closingCosts
-  });
-
-  for (let m = 1; m <= simulationMonths; m++) {
-      let interest1 = 0;
-      let principal1 = 0;
-      let extra = 0;
-
-      if (scenario.manualExtraPayments && scenario.manualExtraPayments[m] !== undefined) {
-          extra = scenario.manualExtraPayments[m];
-      } else {
-          extra = monthlyExtraBase; 
-          if (scenario.oneTimeExtraPayment > 0 && m === scenario.oneTimeExtraPaymentMonth) {
-              extra += scenario.oneTimeExtraPayment;
-          }
-      }
-      
-      if (balance1 > 0.01) {
-          interest1 = balance1 * monthlyRate1;
-          principal1 = monthlyPI1 - interest1;
-          const maxPrincipal = balance1;
-          if (principal1 + extra > maxPrincipal) {
-              const needed = maxPrincipal - principal1;
-              extra = Math.max(0, needed);
-          }
-          balance1 -= (principal1 + extra);
-          if (balance1 < 0.01) {
-             balance1 = 0;
-             if (!isPaidOff && balance2 < 0.01) {
-                isPaidOff = true;
-                actualPayoffMonth = m;
-             }
-          }
-      } else {
-          extra = 0; principal1 = 0; interest1 = 0;
-      }
-
-      let interest2 = 0;
-      let principal2 = 0;
-      if (balance2 > 0.01) {
-          interest2 = balance2 * monthlyRate2;
-          principal2 = monthlyPI2 - interest2;
-          if (principal2 > balance2) principal2 = balance2;
-          balance2 -= principal2;
-          if (balance2 < 0.01) balance2 = 0;
-      }
-
-      if (balance1 <= 0.01 && balance2 <= 0.01 && actualPayoffMonth === 0) {
-          actualPayoffMonth = m;
-      }
-
-      const totalPrincipalThisMonth = principal1 + extra + principal2;
-      const totalInterestThisMonth = interest1 + interest2;
-
-      const currentLTV = balance1 / startHomeValue;
-      const effectivePMI = (currentLTV > 0.8) ? baseMonthlyPMI : 0;
-      const monthlyPropCost = monthlyTax + monthlyIns + monthlyHOA + effectivePMI;
-      
-      accumulatedPropertyCosts += monthlyPropCost;
-      const totalMonthPayment = totalPrincipalThisMonth + totalInterestThisMonth + monthlyPropCost;
-
-      accumulatedInterest += totalInterestThisMonth;
-      accumulatedEquity += totalPrincipalThisMonth;
-      accumulatedPaid += totalMonthPayment;
-      accumulatedExtra += extra;
-      
-      accumulatedGrossRentalIncome += currentRentalIncome;
-      
-      if (scenario.rentalIncomeTaxEnabled) {
-          const monthlyRentTax = currentRentalIncome * (scenario.rentalIncomeTaxRate / 100);
-          accumulatedRentalTax += monthlyRentTax;
-      }
-
-      const refund = (totalInterestThisMonth + monthlyTax) * (scenario.taxRefundRate / 100);
-      accumulatedTaxRefund += refund;
-      
-      schedule.push({
-          monthIndex: m,
-          date: currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          balance: balance1 + balance2,
-          interest: totalInterestThisMonth,
-          principal: totalPrincipalThisMonth,
-          extraPayment: extra,
-          totalPayment: totalMonthPayment,
-          totalInterest: accumulatedInterest,
-          totalTaxRefund: accumulatedTaxRefund,
-          totalPaidToDate: accumulatedPaid,
-          equity: accumulatedEquity,
-          accumulatedRentalIncome: accumulatedGrossRentalIncome,
-          accumulatedRentalTax: accumulatedRentalTax,
-          accumulatedPropertyCosts: accumulatedPropertyCosts 
-      });
-
-      if (m % step === 0 && m <= horizonMonths) {
-          const yearFraction = m / 12;
-          const label = useMonthlyPoints ? `Mo ${m}` : `Yr ${Math.round(yearFraction)}`;
-          
-          const futureVal = scenario.homeValue * Math.pow(1 + appreciationRate / 100, yearFraction);
-          const currentTotalBalance = balance1 + balance2;
-          const equityAtYear = futureVal - currentTotalBalance;
-          const equityGain = equityAtYear - initialEquity; 
-          
-          // Pure Housing Gain for Chart (Excludes investment)
-          const totalGain = equityGain + accumulatedTaxRefund + accumulatedGrossRentalIncome - closingCosts - accumulatedRentalTax;
-
-          // Accumulated Net Cost includes Down Payment for correct "Lowest Cost" plotting
-          const currentNetCost = accumulatedPaid + scenario.downPayment + closingCosts;
-
-          annualData.push({
-              label,
-              year: yearFraction,
-              homeEquity: equityGain, 
-              returnedCapital: initialEquity,
-              investmentValue: 0, 
-              netWorth: equityAtYear,
-              netCost: currentNetCost, 
-              totalGain: totalGain
-          });
-      }
-      currentDate.setMonth(currentDate.getMonth() + 1);
-  }
-
-  const snapshotIndex = Math.min(horizonMonths, schedule.length) - 1;
-  const snapshot = snapshotIndex >= 0 ? schedule[snapshotIndex] : null;
-
-  const totalPaidAtHorizon = snapshot ? snapshot.totalPaidToDate : 0;
-  const interestAtHorizon = snapshot ? snapshot.totalInterest : 0;
-  const taxRefundAtHorizon = snapshot ? snapshot.totalTaxRefund : 0; 
-  const grossRentalIncomeAtHorizon = snapshot ? snapshot.accumulatedRentalIncome : accumulatedGrossRentalIncome;
-  const rentalTaxAtHorizon = snapshot ? snapshot.accumulatedRentalTax : accumulatedRentalTax;
-  const balanceAtHorizon = snapshot ? snapshot.balance : (balance1 + balance2);
-  const extraAtHorizon = (scenario.oneTimeExtraPaymentMonth <= horizonMonths) ? scenario.oneTimeExtraPayment : 0;
-  const totalPropertyCostsAtHorizon = snapshot ? snapshot.accumulatedPropertyCosts : accumulatedPropertyCosts; 
-  
-  // Future Value of Home (Appreciated)
-  const futureHomeValue = scenario.homeValue * Math.pow(1 + appreciationRate / 100, horizonYears);
-  
-  // Market Equity (Gross Equity)
-  const grossEquityAtHorizon = futureHomeValue - balanceAtHorizon;
-  
-  // Costs to Sell
-  const sellingCostsAtHorizon = futureHomeValue * (sellingCostRate / 100);
-
-  // Capital Gains Tax
-  // Logic: Removed the 24 month restriction to allow user to simulate tax at any horizon
-  // if they set the rate > 0. The label is "Capital Gains Tax %".
-  let capitalGainsTax = 0;
-  const flipProfit = (futureHomeValue - scenario.homeValue) - sellingCostsAtHorizon - closingCosts;
-  if (flipProfit > 0) {
-      capitalGainsTax = flipProfit * ((scenario.capitalGainsTaxRate || 0) / 100);
-  }
-  
-  // Net Cash After Sale = Gross Equity - Selling Costs - Capital Gains Tax
-  const cashAfterSale = grossEquityAtHorizon - sellingCostsAtHorizon - capitalGainsTax;
-  
-  const totalPrincipalPaid = (initialTotalLoan - balanceAtHorizon);
-  const totalAppreciation = futureHomeValue - scenario.homeValue;
-  const totalEquityBuilt = totalPrincipalPaid + totalAppreciation;
-
-  const finalInv = getInvestmentResult(horizonYears);
-  
-  // --- STRICT FORMULA IMPLEMENTATION ---
-
-  // 1. NET OUT-OF-POCKET (Housing Only)
-  // (Paid + Down + Closing + RentalTax) - (GrossRent + Refund)
-  // STRICTLY EXCLUDES Investment Contributions for Housing Mode
-  const simpleTotalInvested = (totalPaidAtHorizon + scenario.downPayment + closingCosts + rentalTaxAtHorizon) - grossRentalIncomeAtHorizon - taxRefundAtHorizon;
-
-  // 2. TRUE COST
-  // Net Out-of-Pocket - Cash After Sale
-  const netCost = simpleTotalInvested - cashAfterSale;
-
-  // 3. PROFIT (Total Return - Housing Only)
-  // Strictly Exclude Investment Growth
-  const totalGain = totalAppreciation 
-                  + totalPrincipalPaid 
-                  + taxRefundAtHorizon 
-                  + grossRentalIncomeAtHorizon 
-                  - sellingCostsAtHorizon 
-                  - closingCosts 
-                  - rentalTaxAtHorizon
-                  - capitalGainsTax;
-
-  // 4. ANNUAL RETURN (Simple Annualized ROI)
-  // Formula: (Total Profit / Total OOP) / Years
-  const effectiveAnnualReturn = (horizonYears > 0 && simpleTotalInvested !== 0)
-    ? (totalGain / simpleTotalInvested) / horizonYears * 100
-    : 0;
-
-  const initialPMI = (scenario.homeValue > 0 && (scenario.loanAmount / scenario.homeValue) > 0.8) ? baseMonthlyPMI : 0;
-  const currentMonthlyPITI = monthlyPI1 + monthlyPI2 + monthlyTax + monthlyIns + monthlyHOA + initialPMI;
-  
-  // Net Monthly Payment = PITI - (GrossRent - RentTax)
-  const monthlyRentTaxVal = scenario.rentalIncomeTaxEnabled 
-      ? currentRentalIncome * (scenario.rentalIncomeTaxRate / 100) 
-      : 0;
-  const netMonthlyPayment = currentMonthlyPITI - (currentRentalIncome - monthlyRentTaxVal);
-
-  let lifetimeInterestSaved = 0;
-  let monthsSaved = 0;
-
-  // Simplified interest saving calc for extra payments
-  if (scenario.monthlyExtraPayment > 0 || scenario.oneTimeExtraPayment > 0 || (scenario.manualExtraPayments && Object.keys(scenario.manualExtraPayments).length > 0)) {
-        // Calculate baseline interest (no extra payments)
-        let b1 = scenario.loanAmount;
-        let baselineInterest = 0;
-        const totalMonths = (scenario.yearsRemaining * 12) + scenario.monthsRemaining;
         
-        for(let i=0; i<totalMonths; i++) {
-            if(b1 > 0) {
-                const int = b1 * monthlyRate1;
-                baselineInterest += int;
-                const prin = monthlyPI1 - int;
-                b1 -= prin;
-            }
-        }
-        lifetimeInterestSaved = baselineInterest - accumulatedInterest;
-        monthsSaved = Math.max(0, totalMonths - actualPayoffMonth);
-  }
-
-  return {
-    id: scenario.id,
-    monthlyPrincipalAndInterest: monthlyPI1 + monthlyPI2,
-    monthlyFirstPI: monthlyPI1,
-    monthlySecondPI: monthlyPI2,
-    monthlyTax,
-    monthlyInsurance: monthlyIns,
-    monthlyHOA: monthlyHOA,
-    monthlyPMI: initialPMI,
-    totalMonthlyPayment: currentMonthlyPITI, 
-    netMonthlyPayment, 
-    
-    totalPaid: totalPaidAtHorizon,
-    totalInterest: interestAtHorizon,
-    totalEquityBuilt,
-    taxRefund: taxRefundAtHorizon,
-    netCost,
-    
-    principalPaid: totalPrincipalPaid,
-    totalAppreciation,
-    accumulatedRentalIncome: grossRentalIncomeAtHorizon,
-    totalRentalTax: rentalTaxAtHorizon, 
-    totalPropertyCosts: totalPropertyCostsAtHorizon, 
-
-    futureHomeValue,
-    remainingBalance: balanceAtHorizon,
-    equity: grossEquityAtHorizon,
-    netWorth: grossEquityAtHorizon + finalInv.finalValue,
-    investmentPortfolio: finalInv.finalValue,
-    
-    profit: totalGain,
-    totalCashInvested: 0, 
-    totalInvestmentContribution: finalInv.totalReplenished,
-    averageEquityPerMonth: totalEquityBuilt / horizonMonths,
-    totalExtraPrincipal: accumulatedExtra, 
-
-    payoffDate: isPaidOff 
-        ? new Date(start.setMonth(start.getMonth() + actualPayoffMonth)).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) 
-        : 'N/A',
-    amortizationSchedule: schedule,
-    annualData,
-    
-    totalInvestedAmount: simpleTotalInvested, 
-    initialCapitalBase: scenario.downPayment + closingCosts,
-    effectiveAnnualReturn,
-    lifetimeInterestSaved,
-    monthsSaved,
-    interestSavedAtHorizon: 0,
-    breakEvenMonths: 0,
-    sellingCosts: sellingCostsAtHorizon,
-    capitalGainsTax
-  };
+        baselineTotalInterest: 0,
+        baselinePayoffDate: '',
+        baselineTotalPaid: 0,
+        
+        loanBreakdown
+    };
 };
