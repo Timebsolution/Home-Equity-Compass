@@ -1,168 +1,250 @@
 
+
 export interface LoanScenario {
   id: string;
   name: string;
   color: string;
   isRentOnly: boolean;
-  isInvestmentOnly?: boolean; // New mode
+  isInvestmentOnly?: boolean; 
+  includeHome?: boolean; // New: Toggle entire house/loan section
 
   // Asset
-  homeValue: number;
+  homeValue: number; // This is now treated as "Purchase Price"
+  originalFmv?: number; // New: Fair Market Value at start (for Instant Equity)
   lockFMV: boolean;
 
-  // Loan 1
-  loanAmount: number;
-  lockLoan: boolean;
+  // Loans
+  startDate?: string; // Mortgage Start Date YYYY-MM-DD
+  loanAmount: number; // Primary Loan
+  lockLoan: boolean; // Global Sync Lock
+  primaryBalanceLocked?: boolean; // Correlation Calculation Lock
+  primaryLoanExpenses?: CustomExpense[]; // New: One-time expenses for primary loan
   interestRate: number;
-  loanTermYears: number; // Total original term
-  yearsRemaining: number; 
-  monthsRemaining: number;
-
-  // Loan 2 (New)
-  hasSecondLoan: boolean;
-  secondLoanAmount: number;
-  secondLoanInterestRate: number;
-  secondLoanTermYears: number;
-  secondLoanYearsRemaining: number;
-  secondLoanMonthsRemaining: number;
+  loanTermYears: number; 
+  
+  // New: Dynamic Additional Loans (Solar, 2nd Mortgage, etc.)
+  additionalLoans: AdditionalLoan[];
 
   // Annual Expenses ($)
+  includePropertyCosts?: boolean; // New: Toggle calculation
   propertyTax: number;
-  propertyTaxRate: number; // New: Percentage based tax
-  usePropertyTaxRate: boolean; // New: Toggle for % vs $
+  propertyTaxRate: number; 
+  usePropertyTaxRate: boolean; 
+  
   homeInsurance: number;
+  homeInsuranceRate?: number; // New
+  useHomeInsuranceRate?: boolean; // New
+
   hoa: number;
+  hoaRate?: number; // New
+  useHoaRate?: boolean; // New
+
   pmi: number;
+  pmiRate?: number; // New
+  usePmiRate?: boolean; // New
+  
+  // Custom Expenses (Monthly)
+  customExpenses: CustomExpense[];
 
   // Tax Benefit
-  taxRefundRate: number; // Marginal Tax Rate (applied to Mortgage Interest only)
+  taxRefundRate: number; 
 
   // Cash / Payments
-  downPayment: number; // Initial Cash In
-  closingCosts: number; // New: Upfront costs for purchase/refi
-  sellingCostRate: number; // New: % cost to sell (Agent fees etc)
+  downPayment: number; // Cash Down Payment (Out of Pocket)
+  existingEquity?: number; // Equity already in the house (Not Out of Pocket)
+  lockExistingEquity?: boolean; // Lock for Existing Equity slider
+  
+  // Selling & Buying Costs
+  enableSelling: boolean; // New: Toggle for selling logic
+  closingCosts: number; // Standard Buying closing costs
+  customClosingCosts?: CustomExpense[]; // New: Extra renameable closing costs
+  sellingCostRate: number; 
+  capitalGainsTaxRate: number; 
+  primaryResidenceExclusion?: boolean; // New: Toggle for $250k exclusion
+  
+  // Extra Payment Strategies
+  extraPaymentDelayMonths: number;
   oneTimeExtraPayment: number;
   oneTimeExtraPaymentMonth: number;
   monthlyExtraPayment: number;
-  monthlyExtraPaymentFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually'; // New
-  manualExtraPayments?: Record<number, number>; // New: Specific month overrides (Month Index -> Amount)
+  monthlyExtraPaymentFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually'; 
+  
+  // True Annual Lump Sum
+  annualLumpSumPayment: number; 
+  annualLumpSumMonth: number; // 0-11 (Jan-Dec)
+
+  manualExtraPayments?: Record<number, number>; 
   
   // Income (Buy Mode)
   rentalIncome: number;
   lockRentIncome: boolean;
-  rentalIncomeTaxEnabled: boolean; // New: Apply tax to rental income?
-  rentalIncomeTaxRate: number; // New: Tax rate for rental income
+  rentalIncomeTaxEnabled: boolean; 
+  rentalIncomeTaxRate: number; 
 
   // Rent Mode Specifics
+  includeRent?: boolean; // New: Toggle rent calculation
+  rentFlowType?: 'inflow' | 'outflow'; // New: Explicit income vs expense
   rentMonthly: number;
-  lockRent?: boolean; // New lock for buy mode rent
+  lockRent?: boolean; 
   rentIncreasePerYear: number;
-  rentIncludeTax: boolean; // Does rent include expenses?
+  rentIncludeTax: boolean; 
   rentTaxRate: number; 
   
-  // Investment Mode Specifics (Overrides globals if needed, strictly for this card)
+  // Investment Mode Specifics
   investmentCapital?: number;
-  lockInvestment: boolean; // New: Sync with global investment capital
+  lockInvestment: boolean; 
   investmentMonthly?: number;
-  investmentContributionFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually'; // New
+  investmentContributionFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually'; 
   investmentRate?: number;
-  investMonthlySavings: boolean; // New: Toggle to enable/disable compounding of savings
-  
-  // Taxes
-  capitalGainsTaxRate: number; // Tax on short-term gains
+  investMonthlySavings: boolean; 
+  includeInvestment?: boolean; 
+  investmentTaxRate?: number; 
+}
+
+export interface AdditionalLoan {
+  id: string;
+  name: string;
+  balance: number;
+  rate: number;
+  years: number;
+  startDate?: string;
+  locked?: boolean; // Calculation Lock
+  oneTimeExpenses?: CustomExpense[]; // New: One-time expenses specific to this loan
+}
+
+export interface CustomExpense {
+  id: string;
+  name: string;
+  amount: number; // Amount (Monthly for expenses, One-time for closing costs)
+}
+
+export interface LoanBreakdown {
+  id: string;
+  name: string;
+  principalPaid: number;
+  interestPaid: number;
+  totalPaid: number;
+  remainingBalance: number;
 }
 
 export interface CalculatedLoan {
   id: string;
   
   // Monthly Averages (for UI)
-  monthlyPrincipalAndInterest: number; // Total 1st + 2nd
-  monthlyFirstPI: number; // 1st Loan P&I breakdown
-  monthlySecondPI: number; // 2nd Loan P&I breakdown
+  monthlyPrincipalAndInterest: number; 
+  monthlyFirstPI: number; 
   
   monthlyTax: number;
   monthlyInsurance: number;
   monthlyHOA: number;
   monthlyPMI: number;
-  totalMonthlyPayment: number; // PITI + HOA
-  netMonthlyPayment: number; // New: PITI - Rent (Your Share)
+  monthlyCustomExpenses: number; 
+  totalMonthlyPayment: number; 
+  netMonthlyPayment: number; 
   
   // Totals over Horizon
   totalPaid: number;
+  totalRentPaid: number; // New
   totalInterest: number;
-  totalEquityBuilt: number; // Principal Paid + Appreciation
+  totalEquityBuilt: number; 
   taxRefund: number;
-  netCost: number; // True Cost
+  netCost: number; 
   
   // Wealth Components
-  principalPaid: number; // Pure principal paydown (Forced Savings)
-  totalAppreciation: number; // Market growth
-  accumulatedRentalIncome: number; // Cash from rent
-  totalRentalTax: number; // New: Explicitly track rental tax for display
-  totalPropertyCosts: number; // Tax + Ins + HOA + PMI accumulated
+  principalPaid: number; 
+  totalAppreciation: number; 
+  accumulatedRentalIncome: number; 
+  totalRentalTax: number; 
+  totalPropertyCosts: number; 
+  totalCustomExpenses: number; 
+  totalLoanFees: number; // New: Sum of all one-time loan expenses
 
   // Snapshot at Horizon
   futureHomeValue: number;
-  remainingBalance: number; // 1st + 2nd
+  remainingBalance: number;
+  startingBalance: number;
   equity: number;
-  netWorth: number; // Equity + Investment Portfolio (if modeled)
-  investmentPortfolio: number; // Future Value of side cash
+  netWorth: number; 
+  investmentPortfolio: number; 
   
   // New metrics
-  profit: number; // Net Gain
-  totalCashInvested: number; // Down + Closing + Extra + OneTime
+  profit: number; 
+  totalCashInvested: number; 
   averageEquityPerMonth: number;
   totalExtraPrincipal: number;
-  totalInvestmentContribution: number; // Total cash put into investment (Principal + Monthly)
+  totalInvestmentContribution: number; 
+  totalInvestmentTax: number; 
+  instantEquity: number; // New
 
   payoffDate: string;
   amortizationSchedule: AmortizationPoint[];
-  
+  subSchedules?: Record<string, AmortizationPoint[]>; // New: Individual schedules for each loan
+
   // Annual Data points for graphs
   annualData: AnnualDataPoint[];
   
   // Analysis
   breakEvenMonths?: number;
-  sellingCosts: number; // Explicit tracking
-  capitalGainsTax: number; // Explicit tracking
+  sellingCosts: number; 
+  capitalGainsTax: number; 
+  taxableCapitalGains: number; // New
+  capitalGainsExclusion: number; // New
   
   // Detailed Cash Flow & ROI
-  totalInvestedAmount: number; // Out-of-Pocket
-  initialCapitalBase: number; // New: The denominator used for ROI calc
-  effectiveAnnualReturn: number; // ROI %
+  totalInvestedAmount: number; 
+  initialCapitalBase: number; 
+  effectiveAnnualReturn: number; 
 
-  // Extra Payment Analysis
+  // Extra Payment Analysis (Baseline Comparison)
   lifetimeInterestSaved: number;
   monthsSaved: number;
   interestSavedAtHorizon: number;
+  
+  // New: Baseline Comparison Fields (Assuming NO extra payments)
+  baselineTotalInterest: number;
+  baselinePayoffDate: string;
+  baselineTotalPaid: number;
+  
+  // New: Per-Loan Breakdown
+  loanBreakdown: LoanBreakdown[];
 }
 
 export interface AmortizationPoint {
   monthIndex: number;
   date: string;
-  balance: number; // Total Balance
-  interest: number; // Total Interest
-  principal: number; // Total Principal
+  balance: number; 
+  interest: number; 
+  principal: number; 
   extraPayment: number;
   totalPayment: number;
   totalInterest: number;
-  totalTaxRefund: number; // Added to track cumulative refund at each point
+  totalTaxRefund: number; 
   totalPaidToDate: number;
   equity: number;
-  accumulatedRentalIncome: number; // Cumulative Rental Income
-  accumulatedRentalTax: number; // Cumulative Rental Tax
-  accumulatedPropertyCosts: number; // Cumulative Property Costs
+  accumulatedRentalIncome: number; 
+  accumulatedRentalTax: number; 
+  accumulatedPropertyCosts: number; 
+  // New fields for table visibility
+  customExpenses: number; 
+  investmentBalance: number;
+  investmentTax: number; 
 }
 
 export interface AnnualDataPoint {
-  label: string; // "Mo 1" or "Yr 1"
-  year: number; // Numeric index for sorting/logic
+  label: string; 
+  year: number; 
   homeEquity: number;
   investmentValue: number;
-  returnedCapital: number; // Down Payment portion
+  returnedCapital: number; 
   netWorth: number;
-  netCost: number;
-  totalGain: number; // Wealth Generated (Profit)
+  netCost: number; 
+  totalGain: number; 
+  netProfit?: number; 
+  outOfPocket: number; 
+  trueCost: number; 
+  // Flows
+  cumulativeInflow: number;
+  cumulativeOutflow: number;
 }
 
 export type AnalysisStatus = 'idle' | 'loading' | 'success' | 'error';
