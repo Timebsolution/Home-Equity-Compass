@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo } from 'react';
-import { X, Calendar, Table2, Trash2 } from 'lucide-react';
+import { X, Calendar, Table2, Trash2, Layers, CreditCard } from 'lucide-react';
 import { CalculatedLoan, LoanScenario } from '../types';
-import { formatCurrency } from '../utils/calculations';
+import { formatCurrency, formatNumber } from '../utils/calculations';
 import { Theme } from '../App';
 
 interface AmortizationModalProps {
@@ -30,11 +31,11 @@ const TableInput = ({
     isOverridden: boolean
 }) => {
     // Local state to manage input display
-    const [localStr, setLocalStr] = useState(value.toString());
+    const [localStr, setLocalStr] = useState(formatNumber(value));
     
     // Sync external changes (e.g. scroll or clear all)
     React.useEffect(() => {
-        setLocalStr(value.toString());
+        setLocalStr(formatNumber(value));
     }, [value]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,15 +43,18 @@ const TableInput = ({
     };
 
     const handleBlur = () => {
-        if (localStr === '') {
+        const clean = localStr.replace(/,/g, '');
+        if (clean === '') {
             onChange(null); // Signal revert/clear
             return;
         }
-        const num = parseFloat(localStr);
+        const num = parseFloat(clean);
         if (!isNaN(num)) {
             onChange(num);
+            setLocalStr(formatNumber(num));
         } else {
             onChange(null);
+            setLocalStr('');
         }
     };
     
@@ -67,9 +71,8 @@ const TableInput = ({
 
     return (
         <input 
-            type="number"
-            min="0"
-            step="100"
+            type="text"
+            inputMode="decimal"
             // If it's the default 0 and NOT overridden, show empty to let placeholder show '-'
             value={localStr === '0' && !isOverridden && value === 0 ? '' : localStr} 
             onChange={handleChange}
@@ -90,6 +93,7 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
   theme
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('monthly');
+  const [activeTab, setActiveTab] = useState<string>('combined'); // 'combined' | 'primary' | loanId
 
   if (!isOpen) return null;
 
@@ -101,10 +105,23 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
   const hoverBg = theme === 'light' ? 'hover:bg-gray-50' : 'hover:bg-white/5';
   const activeTabClass = theme === 'light' ? 'bg-white text-brand-600 shadow-sm' : 'bg-neutral-700 text-white shadow-sm';
   const inactiveTabClass = theme === 'light' ? 'text-gray-500 hover:text-gray-700' : 'text-gray-400 hover:text-gray-200';
+  const activeSubTab = theme === 'light' ? 'border-brand-500 text-brand-600' : 'border-brand-400 text-brand-400';
+  const inactiveSubTab = theme === 'light' ? 'border-transparent text-gray-500 hover:text-gray-700' : 'border-transparent text-gray-400 hover:text-gray-200';
 
   const hasManualOverrides = scenario.manualExtraPayments && Object.keys(scenario.manualExtraPayments).length > 0;
+  const hasMultipleLoans = (scenario.additionalLoans || []).length > 0;
+  
+  // Select the correct schedule based on tab
+  // Use safety checks to ensure we don't crash if subSchedules is missing or activeTab is stale
+  const activeSchedule = activeTab === 'combined' 
+      ? calculated.amortizationSchedule 
+      : (calculated.subSchedules ? (calculated.subSchedules[activeTab] || []) : []);
 
   const handleExtraPaymentChange = (monthIndex: number, amount: number | null) => {
+      // Only allow editing extra payment on combined or primary view
+      // Currently extra payment logic in calc is mostly primary based, but could be extended
+      if (activeTab !== 'combined' && activeTab !== 'primary') return;
+
       const newManuals = { ...(scenario.manualExtraPayments || {}) };
       
       // If amount is null or negative, clear the override (revert to global)
@@ -123,6 +140,8 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
 
   // --- Aggregate Annual Data ---
   const annualData = useMemo(() => {
+    if (!activeSchedule) return [];
+
     const years: Record<number, {
       year: number;
       totalPayment: number;
@@ -132,10 +151,15 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
       insurance: number;
       fees: number; // HOA + PMI
       extra: number;
+      taxRefund: number;
       endBalance: number;
+      customExpenses: number;
+      investmentBalance: number;
+      investmentTax: number;
+      subLoanBalances: Record<string, number>;
     }> = {};
 
-    calculated.amortizationSchedule.forEach((row) => {
+    activeSchedule.forEach((row, index) => {
       const year = Math.floor((row.monthIndex - 1) / 12) + 1;
       
       if (!years[year]) {
@@ -148,18 +172,23 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
           insurance: 0,
           fees: 0,
           extra: 0,
-          endBalance: row.balance // Will update to last month
+          taxRefund: 0,
+          endBalance: row.balance, // Will update to last month
+          customExpenses: 0,
+          investmentBalance: row.investmentBalance, // Will update to last month
+          investmentTax: 0,
+          subLoanBalances: {}
         };
       }
 
-      const tax = calculated.monthlyTax;
-      const ins = calculated.monthlyInsurance;
-      const hoa = calculated.monthlyHOA;
+      const tax = activeTab === 'combined' ? calculated.monthlyTax : 0;
+      const ins = activeTab === 'combined' ? calculated.monthlyInsurance : 0;
+      const hoa = activeTab === 'combined' ? calculated.monthlyHOA : 0;
       
-      // Derived PMI = Total - Prin - Int - Extra - Tax - Ins - HOA
-      const pmi = Math.max(0, row.totalPayment - row.principal - row.interest - row.extraPayment - tax - ins - hoa);
+      // Derived PMI logic only applies to combined really, or we assume it's part of Property Cost not loan specific
+      const pmi = 0; 
       const fees = hoa + pmi;
-
+      
       years[year].totalPayment += row.totalPayment;
       years[year].principal += row.principal;
       years[year].interest += row.interest;
@@ -167,21 +196,42 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
       years[year].insurance += ins;
       years[year].fees += fees;
       years[year].extra += row.extraPayment;
+      years[year].taxRefund = row.totalTaxRefund; // Snapshot end of year
+
       years[year].endBalance = row.balance;
+      years[year].customExpenses += row.customExpenses;
+      years[year].investmentBalance = row.investmentBalance;
+      years[year].investmentTax += row.investmentTax;
+
+      // Track sub loan balances annually
+      if (activeTab === 'combined' && calculated.subSchedules) {
+          (scenario.additionalLoans || []).forEach(l => {
+              const subPoint = calculated.subSchedules?.[l.id]?.[index];
+              if (subPoint) {
+                  years[year].subLoanBalances[l.id] = subPoint.balance;
+              }
+          });
+      }
     });
 
     return Object.values(years);
-  }, [calculated]);
+  }, [activeSchedule, calculated, activeTab, scenario.additionalLoans]);
+
+  // Use opaque overlay to hide background content
+  const overlayClass = theme === 'light' ? 'bg-slate-50' : 'bg-neutral-950';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
-      <div className={`${bgClass} rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col border ${borderClass}`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${overlayClass} animate-in fade-in`}>
+      <div className={`${bgClass} rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col border ${borderClass}`}>
         
         {/* Header */}
         <div className={`flex flex-col md:flex-row justify-between items-start md:items-center p-6 border-b gap-4 ${borderClass}`}>
           <div>
             <h2 className={`text-xl font-bold ${textClass}`}>{scenario.name} Schedule</h2>
-            <p className={`text-sm ${subTextClass}`}>Payoff Date: {calculated.payoffDate}</p>
+            <div className="flex gap-4 mt-1">
+                 <p className={`text-sm ${subTextClass}`}>Payoff Date: {calculated.payoffDate}</p>
+                 <p className={`text-sm ${subTextClass}`}>Total Equity: {formatCurrency(calculated.totalEquityBuilt)}</p>
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
@@ -213,15 +263,17 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
         {/* Warning / Status Banners */}
         <div className="flex flex-col gap-2 mx-6 mt-4">
             {/* 1. Global Extra Payment Active Banner */}
-            {scenario.monthlyExtraPayment > 0 && !hasManualOverrides && (
+            {(scenario.monthlyExtraPayment > 0 || scenario.annualLumpSumPayment > 0) && !hasManualOverrides && activeTab === 'combined' && (
             <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex gap-3">
                 <span className="text-xl">ℹ️</span>
                 <div>
-                    <strong className={`block text-sm font-bold ${theme==='light'?'text-gray-800':'text-gray-200'}`}>Recurring Extra Payment Active</strong>
-                    <p className={`text-xs ${theme==='light'?'text-gray-600':'text-gray-400'}`}>
-                        Paying <span className="font-semibold">{formatCurrency(scenario.monthlyExtraPayment)}/month</span> extra. You can override specific months below.
-                    </p>
+                    <strong className={`block text-sm font-bold ${theme==='light'?'text-gray-800':'text-gray-200'}`}>Extra Payment Strategy Active</strong>
+                    <div className={`text-xs ${theme==='light'?'text-gray-600':'text-gray-400'}`}>
+                        {scenario.monthlyExtraPayment > 0 && <span>Paying <span className="font-semibold">{formatCurrency(scenario.monthlyExtraPayment)}/month</span></span>}
+                        {scenario.monthlyExtraPayment > 0 && scenario.annualLumpSumPayment > 0 && <span> + </span>}
+                        {scenario.annualLumpSumPayment > 0 && <span>Annual Lump Sum of <span className="font-semibold">{formatCurrency(scenario.annualLumpSumPayment)}</span></span>}
+                    </div>
                 </div>
                 </div>
                 
@@ -239,7 +291,7 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
             )}
 
             {/* 2. Manual Overrides Active Banner */}
-            {hasManualOverrides && (
+            {hasManualOverrides && activeTab === 'combined' && (
                 <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in slide-in-from-top-2">
                     <div className="flex gap-3">
                         <span className="text-xl">⚠️</span>
@@ -260,34 +312,84 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
             )}
         </div>
 
+        {/* Loan Selection Tabs */}
+        {hasMultipleLoans && (
+            <div className={`mx-6 mt-4 border-b ${borderClass} flex overflow-x-auto`}>
+                <button
+                    onClick={() => setActiveTab('combined')}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wide border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'combined' ? activeSubTab : inactiveSubTab}`}
+                >
+                    <Layers size={14} /> Combined
+                </button>
+                <button
+                    onClick={() => setActiveTab('primary')}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wide border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'primary' ? activeSubTab : inactiveSubTab}`}
+                >
+                    <CreditCard size={14} /> Primary Loan
+                </button>
+                {scenario.additionalLoans.map((l, i) => (
+                    <button
+                        key={l.id}
+                        onClick={() => setActiveTab(l.id)}
+                        className={`px-4 py-2 text-xs font-bold uppercase tracking-wide border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === l.id ? activeSubTab : inactiveSubTab}`}
+                    >
+                        <CreditCard size={14} /> {l.name || `Loan ${i+2}`}
+                    </button>
+                ))}
+            </div>
+        )}
+
         {/* Scrollable Content */}
-        <div className="overflow-auto flex-1 p-0 mt-2">
+        <div className="overflow-auto flex-1 p-0 mt-0">
           <table className="w-full text-xs md:text-sm text-left border-collapse">
             <thead className={`sticky top-0 font-semibold shadow-sm z-10 ${headerBg} ${textClass}`}>
               <tr>
                 <th className={`px-4 py-3 border-b ${borderClass} whitespace-nowrap`}>{viewMode === 'monthly' ? 'Date' : 'Year'}</th>
-                <th className={`px-4 py-3 border-b ${borderClass}`}>Total PITI</th>
+                <th className={`px-4 py-3 border-b ${borderClass}`}>Total Outflow</th>
                 <th className={`px-4 py-3 border-b text-green-700 dark:text-green-400 ${borderClass}`}>Principal</th>
                 <th className={`px-4 py-3 border-b text-red-600 dark:text-red-400 ${borderClass}`}>Interest</th>
-                <th className={`px-4 py-3 border-b text-gray-500 dark:text-gray-400 ${borderClass} hidden md:table-cell`}>Tax</th>
-                <th className={`px-4 py-3 border-b text-gray-500 dark:text-gray-400 ${borderClass} hidden md:table-cell`}>Ins</th>
-                <th className={`px-4 py-3 border-b text-gray-500 dark:text-gray-400 ${borderClass} hidden md:table-cell`}>HOA/PMI</th>
+                
+                {activeTab === 'combined' && (
+                    <>
+                        <th className={`px-4 py-3 border-b text-gray-500 dark:text-gray-400 ${borderClass} hidden lg:table-cell`}>Tax</th>
+                        <th className={`px-4 py-3 border-b text-gray-500 dark:text-gray-400 ${borderClass} hidden lg:table-cell`}>Ins</th>
+                        <th className={`px-4 py-3 border-b text-orange-500 dark:text-orange-400 ${borderClass} hidden md:table-cell`}>Exp</th>
+                    </>
+                )}
+                
                 <th className={`px-4 py-3 border-b text-blue-600 dark:text-blue-400 ${borderClass} w-24`}>Extra</th>
-                <th className={`px-4 py-3 border-b text-right ${borderClass}`}>Balance</th>
+                <th className={`px-4 py-3 border-b text-cyan-600 dark:text-cyan-400 ${borderClass} hidden md:table-cell`}>Cum. Refund</th>
+                
+                {activeTab === 'combined' && (
+                    <>
+                        <th className={`px-4 py-3 border-b text-purple-600 dark:text-purple-400 ${borderClass} hidden md:table-cell`}>Inv. Value</th>
+                        <th className={`px-4 py-3 border-b text-gray-400 dark:text-gray-500 ${borderClass} hidden md:table-cell`}>Inv. Tax</th>
+                    </>
+                )}
+                
+                {/* Additional Loan Balance Columns (Combined View Only) */}
+                {activeTab === 'combined' && scenario.additionalLoans.map(l => (
+                    <th key={l.id} className={`px-4 py-3 border-b text-right text-gray-500 dark:text-gray-400 ${borderClass} hidden sm:table-cell`}>
+                        {l.name} Bal
+                    </th>
+                ))}
+
+                <th className={`px-4 py-3 border-b text-right ${borderClass}`}>
+                    {activeTab === 'combined' ? 'Total Balance' : 'Balance'}
+                </th>
               </tr>
             </thead>
             <tbody className={`divide-y ${theme === 'light' ? 'divide-gray-100' : 'divide-gray-700'}`}>
               
               {viewMode === 'monthly' ? (
                 // --- MONTHLY ROWS ---
-                calculated.amortizationSchedule.map((row) => {
-                  const tax = calculated.monthlyTax;
-                  const ins = calculated.monthlyInsurance;
-                  const hoa = calculated.monthlyHOA;
-                  const fees = Math.max(0, row.totalPayment - row.principal - row.interest - row.extraPayment - tax - ins);
+                activeSchedule && activeSchedule.map((row, index) => {
+                  const tax = activeTab === 'combined' ? calculated.monthlyTax : 0;
+                  const ins = activeTab === 'combined' ? calculated.monthlyInsurance : 0;
                   
                   // Check if this row is overridden
                   const isOverridden = scenario.manualExtraPayments?.[row.monthIndex] !== undefined;
+                  const canEditExtra = activeTab === 'combined' || activeTab === 'primary';
 
                   return (
                     <tr key={row.monthIndex} className={hoverBg}>
@@ -296,19 +398,52 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
                       <td className="px-4 py-2 text-green-700 dark:text-green-400">{formatCurrency(row.principal)}</td>
                       <td className="px-4 py-2 text-red-600 dark:text-red-400">{formatCurrency(row.interest)}</td>
                       
-                      <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden md:table-cell">{formatCurrency(tax)}</td>
-                      <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden md:table-cell">{formatCurrency(ins)}</td>
-                      <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden md:table-cell">{formatCurrency(fees)}</td>
+                      {activeTab === 'combined' && (
+                          <>
+                            <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden lg:table-cell">{formatCurrency(tax)}</td>
+                            <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden lg:table-cell">{formatCurrency(ins)}</td>
+                            <td className="px-4 py-2 text-orange-500 dark:text-orange-400 hidden md:table-cell">{row.customExpenses > 0 ? formatCurrency(row.customExpenses) : '-'}</td>
+                          </>
+                      )}
                       
                       <td className="px-4 py-2">
-                        <TableInput 
-                            value={row.extraPayment} 
-                            onChange={(val) => handleExtraPaymentChange(row.monthIndex, val)} 
-                            theme={theme}
-                            placeholder={scenario.monthlyExtraPayment > 0 ? scenario.monthlyExtraPayment.toString() : '-'}
-                            isOverridden={isOverridden}
-                        />
+                        {canEditExtra ? (
+                            <TableInput 
+                                value={row.extraPayment} 
+                                onChange={(val) => handleExtraPaymentChange(row.monthIndex, val)} 
+                                theme={theme}
+                                placeholder={scenario.monthlyExtraPayment > 0 ? scenario.monthlyExtraPayment.toString() : '-'}
+                                isOverridden={isOverridden}
+                            />
+                        ) : (
+                            <span className="text-gray-500">{row.extraPayment > 0 ? formatCurrency(row.extraPayment) : '-'}</span>
+                        )}
                       </td>
+                      <td className="px-4 py-2 text-cyan-600 dark:text-cyan-400 hidden md:table-cell font-mono text-xs">
+                         {formatCurrency(row.totalTaxRefund)}
+                      </td>
+                      
+                      {activeTab === 'combined' && (
+                          <>
+                            <td className="px-4 py-2 text-purple-600 dark:text-purple-400 hidden md:table-cell font-medium">
+                                {formatCurrency(row.investmentBalance)}
+                            </td>
+                            <td className="px-4 py-2 text-gray-400 dark:text-gray-500 hidden md:table-cell font-mono text-xs">
+                                {row.investmentTax > 0 ? formatCurrency(row.investmentTax) : '-'}
+                            </td>
+                          </>
+                      )}
+                      
+                      {/* Individual Loan Balances */}
+                      {activeTab === 'combined' && scenario.additionalLoans.map(l => {
+                          const subBalance = calculated.subSchedules?.[l.id]?.[index]?.balance || 0;
+                          return (
+                            <td key={l.id} className="px-4 py-2 text-right text-gray-500 dark:text-gray-400 hidden sm:table-cell text-xs font-mono">
+                                {formatCurrency(subBalance)}
+                            </td>
+                          );
+                      })}
+
                       <td className={`px-4 py-2 text-right font-bold ${textClass}`}>
                         {formatCurrency(row.balance)}
                       </td>
@@ -317,25 +452,56 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
                 })
               ) : (
                 // --- ANNUAL ROWS (Read Only) ---
-                annualData.map((row) => (
-                    <tr key={row.year} className={hoverBg}>
-                      <td className={`px-4 py-3 font-mono font-bold ${textClass}`}>Year {row.year}</td>
-                      <td className={`px-4 py-3 font-bold ${textClass}`}>{formatCurrency(row.totalPayment)}</td>
-                      <td className="px-4 py-3 text-green-700 dark:text-green-400 font-medium">{formatCurrency(row.principal)}</td>
-                      <td className="px-4 py-3 text-red-600 dark:text-red-400 font-medium">{formatCurrency(row.interest)}</td>
-                      
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{formatCurrency(row.tax)}</td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{formatCurrency(row.insurance)}</td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">{formatCurrency(row.fees)}</td>
-                      
-                      <td className="px-4 py-3 text-blue-600 dark:text-blue-400 font-semibold">
-                        {row.extra > 0 ? formatCurrency(row.extra) : '-'}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-bold ${textClass}`}>
-                        {formatCurrency(row.endBalance)}
-                      </td>
-                    </tr>
-                ))
+                annualData.map((row) => {
+                    // For cumulative snapshot columns
+                    const cumRefund = row.taxRefund; // Computed as snapshot in useMemo
+
+                    return (
+                        <tr key={row.year} className={hoverBg}>
+                        <td className={`px-4 py-3 font-mono font-bold ${textClass}`}>Year {row.year}</td>
+                        <td className={`px-4 py-3 font-bold ${textClass}`}>{formatCurrency(row.totalPayment)}</td>
+                        <td className="px-4 py-3 text-green-700 dark:text-green-400 font-medium">{formatCurrency(row.principal)}</td>
+                        <td className="px-4 py-3 text-red-600 dark:text-red-400 font-medium">{formatCurrency(row.interest)}</td>
+                        
+                        {activeTab === 'combined' && (
+                            <>
+                                <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">{formatCurrency(row.tax)}</td>
+                                <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">{formatCurrency(row.insurance)}</td>
+                                <td className="px-4 py-3 text-orange-500 dark:text-orange-400 hidden md:table-cell font-medium">{row.customExpenses > 0 ? formatCurrency(row.customExpenses) : '-'}</td>
+                            </>
+                        )}
+                        
+                        <td className="px-4 py-3 text-blue-600 dark:text-blue-400 font-semibold">
+                            {row.extra > 0 ? formatCurrency(row.extra) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-cyan-600 dark:text-cyan-400 hidden md:table-cell font-mono text-xs font-bold">
+                            {formatCurrency(cumRefund)}
+                        </td>
+                        
+                        {activeTab === 'combined' && (
+                            <>
+                                <td className="px-4 py-3 text-purple-600 dark:text-purple-400 hidden md:table-cell font-bold">
+                                    {formatCurrency(row.investmentBalance)}
+                                </td>
+                                <td className="px-4 py-3 text-gray-400 dark:text-gray-500 hidden md:table-cell font-mono text-xs">
+                                    {row.investmentTax > 0 ? formatCurrency(row.investmentTax) : '-'}
+                                </td>
+                            </>
+                        )}
+                        
+                        {/* Individual Loan Balances (Annual) */}
+                        {activeTab === 'combined' && scenario.additionalLoans.map(l => (
+                            <td key={l.id} className="px-4 py-3 text-right text-gray-500 dark:text-gray-400 hidden sm:table-cell text-xs font-mono font-medium">
+                                {formatCurrency(row.subLoanBalances[l.id] || 0)}
+                            </td>
+                        ))}
+
+                        <td className={`px-4 py-3 text-right font-bold ${textClass}`}>
+                            {formatCurrency(row.endBalance)}
+                        </td>
+                        </tr>
+                    );
+                })
               )}
             </tbody>
           </table>
@@ -346,16 +512,32 @@ export const AmortizationModal: React.FC<AmortizationModalProps> = ({
           <div className="flex gap-6">
             <div>
               <span className={`${subTextClass} block text-xs`}>Total Interest</span>
-              <span className={`font-bold ${textClass}`}>{formatCurrency(calculated.totalInterest)}</span>
+              <span className={`font-bold ${textClass}`}>
+                  {activeTab === 'combined' ? formatCurrency(calculated.totalInterest) : 
+                    activeSchedule && activeSchedule.length > 0 ? formatCurrency(activeSchedule[activeSchedule.length - 1].totalInterest) : '$0'}
+              </span>
             </div>
             <div>
               <span className={`${subTextClass} block text-xs`}>Total Paid</span>
-              <span className={`font-bold ${textClass}`}>{formatCurrency(calculated.totalPaid)}</span>
+              <span className={`font-bold ${textClass}`}>
+                   {activeTab === 'combined' ? formatCurrency(calculated.totalPaid) : 
+                    activeSchedule && activeSchedule.length > 0 ? formatCurrency(activeSchedule[activeSchedule.length - 1].totalPaidToDate) : '$0'}
+              </span>
             </div>
-            <div>
-              <span className={`${subTextClass} block text-xs`}>Total Equity</span>
-              <span className={`font-bold text-green-600 dark:text-green-400`}>{formatCurrency(calculated.totalEquityBuilt)}</span>
-            </div>
+            {activeTab === 'combined' && (
+                <>
+                    <div>
+                    <span className={`${subTextClass} block text-xs`}>Total Equity</span>
+                    <span className={`font-bold text-green-600 dark:text-green-400`}>{formatCurrency(calculated.totalEquityBuilt)}</span>
+                    </div>
+                    {calculated.investmentPortfolio > 0 && (
+                    <div>
+                    <span className={`${subTextClass} block text-xs`}>Investment Portfolio</span>
+                    <span className={`font-bold text-purple-600 dark:text-purple-400`}>{formatCurrency(calculated.investmentPortfolio)}</span>
+                    </div>
+                    )}
+                </>
+            )}
           </div>
           <button 
              onClick={onClose}
