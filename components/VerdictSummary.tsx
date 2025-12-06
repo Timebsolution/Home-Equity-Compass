@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { TrendingUp, Wallet, Landmark, PiggyBank, Trophy, Percent, ShieldCheck } from 'lucide-react';
+import { TrendingUp, Wallet, Landmark, PiggyBank, Trophy, Percent, ShieldCheck, Banknote, Home } from 'lucide-react';
 import { LoanScenario, CalculatedLoan } from '../types';
 import { formatCurrency } from '../utils/calculations';
 import { Theme } from '../App';
@@ -18,7 +18,8 @@ const VerdictCard = ({
     color, 
     icon, 
     subLabel,
-    theme 
+    theme,
+    alertColor
 }: { 
     label: string, 
     value: string, 
@@ -26,7 +27,8 @@ const VerdictCard = ({
     color: string, 
     icon: React.ReactNode, 
     subLabel?: string,
-    theme: Theme
+    theme: Theme,
+    alertColor?: string
 }) => {
     const cardBg = theme === 'light' ? 'bg-white border-gray-200' : 'bg-white/5 border-gray-700';
     const textClass = theme === 'light' ? 'text-gray-900' : 'text-gray-100';
@@ -34,7 +36,7 @@ const VerdictCard = ({
 
     return (
         <div className={`p-4 rounded-xl border shadow-sm flex flex-col gap-3 ${cardBg} relative overflow-hidden group`}>
-            <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: color }}></div>
+            <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: alertColor || color }}></div>
             <div className="flex justify-between items-start">
                 <div className="flex items-center gap-2">
                     <div className={`p-1.5 rounded-lg ${theme === 'light' ? 'bg-gray-100 text-gray-600' : 'bg-gray-800 text-gray-300'}`}>
@@ -44,7 +46,7 @@ const VerdictCard = ({
                 </div>
             </div>
             <div>
-                <div className={`text-lg font-bold truncate mb-0.5 ${textClass}`} style={{ color: color }}>
+                <div className={`text-lg font-bold truncate mb-0.5 ${textClass}`} style={{ color: alertColor || color }}>
                     {scenarioName}
                 </div>
                 <div className={`text-2xl font-extrabold ${textClass}`}>
@@ -80,6 +82,39 @@ export const VerdictSummary: React.FC<VerdictSummaryProps> = ({ scenarios, calcu
     const bestROI = findWinner(c => c.effectiveAnnualReturn, 'max');
     const lowestCost = findWinner(c => c.netCost, 'min');
     const lowestOOP = findWinner(c => c.totalInvestedAmount, 'min');
+    const lowestMonthly = findWinner(c => c.netMonthlyPayment, 'min');
+
+    // Strategy Comparison: Investment (Rent/Pure) vs Equity (Buy/Refi)
+    const investmentStrategies = calculatedData.filter(c => {
+        const s = scenarios.find(sc => sc.id === c.id);
+        return s?.isInvestmentOnly || s?.isRentOnly;
+    });
+    
+    const equityStrategies = calculatedData.filter(c => {
+        const s = scenarios.find(sc => sc.id === c.id);
+        return !s?.isInvestmentOnly && !s?.isRentOnly;
+    });
+
+    // Find best of each class
+    const bestInvest = investmentStrategies.sort((a,b) => b.netWorth - a.netWorth)[0];
+    const bestEquity = equityStrategies.sort((a,b) => b.netWorth - a.netWorth)[0];
+
+    let strategyInsight = null;
+    if (bestInvest && bestEquity) {
+        const diff = bestInvest.netWorth - bestEquity.netWorth;
+        const winner = diff > 0 ? bestInvest : bestEquity;
+        const sName = scenarios.find(s => s.id === winner.id)?.name || "";
+        const strategyName = diff > 0 ? "Investing Strategy" : "Equity Strategy";
+        const msg = `${strategyName} Wins by ${formatCurrency(Math.abs(diff))}`;
+        
+        strategyInsight = {
+            title: "Strategy Insight",
+            value: msg,
+            sub: `Comparing Net Worth: ${sName} vs ${diff > 0 ? scenarios.find(s=>s.id===bestEquity.id)?.name : scenarios.find(s=>s.id===bestInvest.id)?.name}`,
+            color: diff > 0 ? '#a855f7' : '#22c55e', // Purple for Invest, Green for Equity
+            icon: diff > 0 ? <TrendingUp size={16} /> : <Home size={16} />
+        };
+    }
 
     const textColor = theme === 'light' ? 'text-gray-900' : 'text-white';
     const subText = theme === 'light' ? 'text-gray-500' : 'text-gray-400';
@@ -95,6 +130,20 @@ export const VerdictSummary: React.FC<VerdictSummaryProps> = ({ scenarios, calcu
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                
+                {strategyInsight && (
+                    <VerdictCard 
+                        label={strategyInsight.title}
+                        value={strategyInsight.value}
+                        scenarioName={strategyInsight.value.split(" Wins")[0]} // Hacky visual
+                        color={strategyInsight.color}
+                        icon={strategyInsight.icon}
+                        subLabel={strategyInsight.sub}
+                        theme={theme}
+                        alertColor={strategyInsight.color}
+                    />
+                )}
+
                 <VerdictCard 
                     label="Best Profit"
                     value={formatCurrency(bestProfit.value)}
@@ -140,21 +189,16 @@ export const VerdictSummary: React.FC<VerdictSummaryProps> = ({ scenarios, calcu
                     subLabel="Least Cash Required"
                     theme={theme}
                 />
+                <VerdictCard 
+                    label="Lowest Monthly Payment"
+                    value={formatCurrency(lowestMonthly.value)}
+                    scenarioName={lowestMonthly.scenario?.name || ''}
+                    color={lowestMonthly.scenario?.color || '#ccc'}
+                    icon={<Banknote size={16} />}
+                    subLabel="Best Cash Flow"
+                    theme={theme}
+                />
                 
-                {/* Summary / Recommendation Card */}
-                <div className={`p-4 rounded-xl border border-dashed flex flex-col justify-center items-center text-center gap-2 ${theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-white/5 border-gray-600'}`}>
-                    <Trophy size={24} className="text-yellow-500 mb-1" />
-                    <div className={`text-sm font-bold ${textColor}`}>
-                        {bestProfit.scenario?.id === bestNetWorth.scenario?.id 
-                            ? "Clear Winner" 
-                            : "Strategy Trade-off"}
-                    </div>
-                    <div className={`text-xs ${subText}`}>
-                        {bestProfit.scenario?.id === bestNetWorth.scenario?.id 
-                            ? `${bestProfit.scenario?.name} wins on both Profit and Net Worth.`
-                            : `${bestProfit.scenario?.name} maximizes Profit, while ${bestNetWorth.scenario?.name} builds the most Net Worth.`}
-                    </div>
-                </div>
             </div>
         </div>
     );
