@@ -18,6 +18,7 @@ export interface LoanScenario {
   loanAmount: number; // Primary Loan
   lockLoan: boolean; // Global Sync Lock
   primaryBalanceLocked?: boolean; // Correlation Calculation Lock
+  manualCurrentBalance?: number; // New: Manual Override for Current Balance
   primaryLoanExpenses?: CustomExpense[]; // New: One-time expenses for primary loan
   interestRate: number;
   loanTermYears: number; 
@@ -42,6 +43,11 @@ export interface LoanScenario {
   pmi: number;
   pmiRate?: number; // New
   usePmiRate?: boolean; // New
+  
+  // Repair
+  repair?: number;
+  repairRate?: number;
+  useRepairRate?: boolean;
   
   // Custom Expenses (Monthly)
   customExpenses: CustomExpense[];
@@ -110,6 +116,8 @@ export interface AdditionalLoan {
   startDate?: string;
   locked?: boolean; // Calculation Lock
   oneTimeExpenses?: CustomExpense[]; // New: One-time expenses specific to this loan
+  monthlyExtraPayment?: number;
+  monthlyExtraPaymentFrequency?: 'weekly' | 'biweekly' | 'monthly' | 'semiannually' | 'annually';
 }
 
 export interface CustomExpense {
@@ -121,7 +129,8 @@ export interface CustomExpense {
 export interface LoanBreakdown {
   id: string;
   name: string;
-  principalPaid: number;
+  principalPaid: number; // Total Principal (Scheduled + Extra)
+  extraPrincipalPaid: number; // New: Portion that was Extra
   interestPaid: number;
   totalPaid: number;
   remainingBalance: number;
@@ -139,6 +148,7 @@ export interface CalculatedLoan {
   monthlyHOA: number;
   monthlyPMI: number;
   monthlyCustomExpenses: number; 
+  monthlyRepair: number; // ADDED
   totalMonthlyPayment: number; 
   netMonthlyPayment: number; 
   
