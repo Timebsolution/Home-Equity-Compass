@@ -1,7 +1,9 @@
+
+
 import React, { useState, useEffect } from 'react';
-import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart, PiggyBank, CreditCard, Receipt, Building, Landmark, Wallet, Briefcase, Scale, Tag, LogOut, Clock, Calculator, Activity, Zap, Plus, ChevronUp, ShieldCheck } from 'lucide-react';
+import { Trash2, Lock, Unlock, Percent, Calendar, Settings2, DollarSign, Home, Copy, Table2, Globe, Trophy, TrendingUp, Link, Eye, EyeOff, PlusCircle, Info, ChevronDown, ChevronRight, PieChart, PiggyBank, CreditCard, Receipt, Building, Landmark, Wallet, Briefcase, Scale, Tag, LogOut, Clock, Calculator, Activity, Zap, Plus, ChevronUp, ShieldCheck, ArrowRight, ArrowUpRight, AlertTriangle } from 'lucide-react';
 import { LoanScenario, CalculatedLoan, CustomExpense, AdditionalLoan } from '../types';
-import { formatCurrency, formatNumber, generateId, calculateCurrentBalance } from '../utils/calculations';
+import { formatCurrency, formatNumber, generateId, calculateCurrentBalance, convertToMonthlyContribution } from '../utils/calculations';
 import { Theme, ComparisonMetric } from '../App';
 
 interface LoanCardProps {
@@ -304,7 +306,7 @@ interface BreakdownRowProps {
     value: string, 
     colorClass?: string, 
     icon?: React.ReactNode, 
-    tooltip?: string,
+    tooltip?: string, 
     bgClass?: string,
     isHighlighted?: boolean,
     isDimmed?: boolean,
@@ -418,8 +420,8 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   calculated, 
   onUpdate, 
   onRemove, 
-  onDuplicate,
-  onViewSchedule,
+  onDuplicate, 
+  onViewSchedule, 
   onOpenImport,
   canRemove,
   theme,
@@ -516,6 +518,21 @@ export const LoanCard: React.FC<LoanCardProps> = ({
     onUpdate(scenario.id, { [field]: !scenario[field] });
   };
 
+  const getExtraPaymentStartDate = (delayMonths: number) => {
+    if (!scenario.startDate) return '';
+    const d = new Date(scenario.startDate);
+    d.setMonth(d.getMonth() + delayMonths);
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  };
+  
+  const showEffectiveExtra = scenario.monthlyExtraPayment > 0 && 
+      (scenario.monthlyExtraPaymentFrequency !== 'monthly' && scenario.monthlyExtraPaymentFrequency !== undefined);
+  
+  const effectiveMonthlyExtra = convertToMonthlyContribution(scenario.monthlyExtraPayment, scenario.monthlyExtraPaymentFrequency || 'monthly');
+
+  // Manual Override Check
+  const hasManualOverrides = scenario.manualExtraPayments && Object.keys(scenario.manualExtraPayments).length > 0;
+
   // Custom Expense Helpers
   const addCustomExpense = () => {
       const newExpense: CustomExpense = { id: generateId(), name: '', amount: 0 };
@@ -566,7 +583,9 @@ export const LoanCard: React.FC<LoanCardProps> = ({
         years: 10, 
         locked: false,
         startDate: new Date().toISOString().split('T')[0],
-        oneTimeExpenses: []
+        oneTimeExpenses: [],
+        monthlyExtraPayment: 0,
+        monthlyExtraPaymentFrequency: 'monthly'
       };
       onUpdate(scenario.id, { 
           additionalLoans: [...(scenario.additionalLoans || []), newLoan],
@@ -771,15 +790,52 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   const totalLoansActual = calculated.startingBalance + totalAdditionalCurrent;
   
   const totalEquityActual = (scenario.downPayment || 0) + (scenario.existingEquity || 0);
-  const isEquationBroken = Math.abs((totalLoansActual + totalEquityActual) - scenario.homeValue) > 500; // Tolerance
+  const isEquationBroken = (scenario.includeHome !== false) && Math.abs((totalLoansActual + totalEquityActual) - scenario.homeValue) > 500; // Tolerance
 
   const cycleMode = () => {
     if (scenario.isInvestmentOnly) {
-        onUpdate(scenario.id, { isInvestmentOnly: false, isRentOnly: false }); 
+        // -> Buy Mode
+        setIsHouseLoanOpen(true);
+        setIsRentOpen(false); // Default rent off for Buy
+        setIsInvestmentOpen(true);
+        onUpdate(scenario.id, { 
+            isInvestmentOnly: false, 
+            isRentOnly: false, 
+            includeHome: true, // Turn on Home
+            includePropertyCosts: true,
+            enableSelling: true,
+            includeRent: false, // Default off for buy
+            includeInvestment: true,
+            rentFlowType: 'inflow' // Buy mode usually implies income if active
+        }); 
     } else if (scenario.isRentOnly) {
-        onUpdate(scenario.id, { isRentOnly: false, isInvestmentOnly: true }); 
+        // -> Investment Only
+        setIsHouseLoanOpen(false); // Collapse disabled section
+        setIsRentOpen(false); // Collapse disabled section
+        setIsInvestmentOpen(true);
+        onUpdate(scenario.id, { 
+            isRentOnly: false, 
+            isInvestmentOnly: true,
+            includeHome: false, // Turn off Home
+            includePropertyCosts: false,
+            enableSelling: false,
+            includeRent: false,
+            includeInvestment: true
+        }); 
     } else {
-        onUpdate(scenario.id, { isRentOnly: true }); 
+        // -> Rent Mode
+        setIsHouseLoanOpen(false); // Collapse disabled section
+        setIsRentOpen(true);
+        setIsInvestmentOpen(true);
+        onUpdate(scenario.id, { 
+            isRentOnly: true,
+            includeHome: false, // Turn off Home
+            includePropertyCosts: false,
+            enableSelling: false,
+            includeRent: true, // Turn on Rent
+            rentFlowType: 'outflow', // Renting is expense
+            includeInvestment: true
+        }); 
     }
   };
 
@@ -818,6 +874,11 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   
   // Instant Equity Calculation
   const instantEquity = calculated.instantEquity;
+  
+  // New definitions for Snapshot
+  const rProfit = Math.round(calculated.profit);
+  const rNetWorth = Math.round(calculated.netWorth);
+  const rOutOfPocket = Math.round(calculated.totalInvestedAmount);
 
   let mainMetricLabel = "PROFIT";
   let mainMetricValue = calculated.profit;
@@ -838,15 +899,15 @@ export const LoanCard: React.FC<LoanCardProps> = ({
   }
 
   const getSummaryText = () => {
-    if (scenario.isInvestmentOnly) return `Investment Strategy · ${projectionYears.toFixed(1)} years`;
+    if (scenario.includeHome !== false) return `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)} · ${projectionYears.toFixed(1)} years`;
     if (scenario.isRentOnly) return `Rent + Invest Monthly Savings · ${projectionYears.toFixed(1)} years`;
-    return `${scenario.interestRate}% · ${formatCurrency(scenario.loanAmount)} · ${projectionYears.toFixed(1)} years`;
+    return `Investment Strategy · ${projectionYears.toFixed(1)} years`;
   };
   
   const getPitiTitle = () => {
-      if (scenario.isInvestmentOnly) return "Monthly Contribution";
-      if (scenario.isRentOnly) return "Monthly Outflow";
-      return "Monthly Payment";
+      if (scenario.includeHome !== false) return "Monthly Payment";
+      if (scenario.isRentOnly && scenario.includeRent !== false) return "Monthly Outflow";
+      return "Monthly Contribution"; 
   };
 
   const capGainsTooltip = `Projected Sale Price: ${formatCurrency(calculated.futureHomeValue)}
@@ -956,7 +1017,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                     {showAdvanced && (
                     <div className={`${advancedBg} border ${theme==='light'?'border-gray-200':'border-gray-700'} p-3 rounded-lg space-y-3 mt-2 text-left animate-in fade-in slide-in-from-top-1`}>
                         {/* 1. HOUSE & LOAN */}
-                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                        
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
                             {/* Toggle right, arrow left layout */}
                             <div className="flex justify-between items-center mb-2">
@@ -984,9 +1045,8 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                             onChange={(e) => {
                                                 const newVal = e.target.checked;
                                                 onUpdate(scenario.id, { includeHome: newVal });
-                                                // Auto collapse if turned off, auto expand if turned on
-                                                if (!newVal) setIsHouseLoanOpen(false);
-                                                else setIsHouseLoanOpen(true);
+                                                // If turning ON, auto expand
+                                                if (newVal) setIsHouseLoanOpen(true);
                                             }}
                                             className="sr-only peer"
                                         />
@@ -998,8 +1058,8 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                 </div>
                             </div>
                             
-                            {(isHouseLoanOpen && scenario.includeHome !== false) ? (
-                                <div className="animate-in fade-in slide-in-from-top-1">
+                            {isHouseLoanOpen && (
+                                <div className={`animate-in fade-in slide-in-from-top-1 transition-opacity duration-200 ${scenario.includeHome !== false ? 'opacity-100' : 'opacity-40 pointer-events-none grayscale'}`}>
                                     {/* Purchase Price Input */}
                                     <div className={getInputHighlightClass(['home-val', 'cap-gains'])}>
                                         <SliderInput 
@@ -1077,10 +1137,11 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                                 <label className={`text-[10px] font-bold uppercase ${labelColor}`}>Primary Loan</label>
                                                 <button 
                                                     onClick={() => onUpdate(scenario.id, { primaryBalanceLocked: !scenario.primaryBalanceLocked })}
-                                                    className={`p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${scenario.primaryBalanceLocked ? 'text-red-500' : 'text-gray-300'}`}
-                                                    title="Lock Balance Calculation"
+                                                    className={`p-0.5 rounded flex items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-700 ${scenario.primaryBalanceLocked ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/30' : 'text-gray-300'}`}
+                                                    title={scenario.primaryBalanceLocked ? "Unlock Balance Calculation (Revert to Formula)" : "Lock Balance (Manual Override)"}
                                                 >
                                                     {scenario.primaryBalanceLocked ? <Lock size={10} /> : <Unlock size={10} />}
+                                                    {scenario.primaryBalanceLocked && <span className="text-[9px] font-medium">Locked</span>}
                                                 </button>
                                             </div>
                                         </div>
@@ -1090,21 +1151,133 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                             style={{ borderColor: scenario.color }}
                                         >
                                             <div className={getInputHighlightClass(['loan-amt', 'netPayment'])}>
-                                                <SliderInput 
-                                                    label="Loan Amount (Originated)" 
-                                                    value={scenario.loanAmount} 
-                                                    onChange={handlePrimaryLoanChange} 
-                                                    min={50000} max={2000000} step={5000} theme={theme}
-                                                    disabled={!scenario.lockLoan}
-                                                    isGlobal={!scenario.lockLoan}
-                                                    className="mb-1"
-                                                    subLabel={showBalanceLabel && (
-                                                        <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">
-                                                            Current Balance: {formatCurrency(calculated.startingBalance)}
-                                                        </span>
-                                                    )}
+                                                {scenario.primaryBalanceLocked ? (
+                                                    <div className="mb-2 p-2 rounded bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30">
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <label className="text-[10px] font-bold text-orange-600 dark:text-orange-400">Current Balance Override</label>
+                                                            <Tooltip text="Manually set the current remaining balance of the loan, ignoring historical calculations." />
+                                                        </div>
+                                                        <MoneyInput 
+                                                            value={scenario.manualCurrentBalance !== undefined ? scenario.manualCurrentBalance : calculated.startingBalance} 
+                                                            onChange={(v) => onUpdate(scenario.id, { manualCurrentBalance: v })} 
+                                                            theme={theme}
+                                                            maxDecimals={0}
+                                                            className="font-bold text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800"
+                                                        />
+                                                        {/* Still show slider for Origination Amount in case user wants to see it */}
+                                                        <div className="mt-2 opacity-50">
+                                                            <SliderInput 
+                                                                label="Original Loan Amount" 
+                                                                value={scenario.loanAmount} 
+                                                                onChange={handlePrimaryLoanChange} 
+                                                                min={50000} max={2000000} step={5000} theme={theme}
+                                                                disabled={!scenario.lockLoan}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <SliderInput 
+                                                        label="Loan Amount (Originated)" 
+                                                        value={scenario.loanAmount} 
+                                                        onChange={handlePrimaryLoanChange} 
+                                                        min={50000} max={2000000} step={5000} theme={theme}
+                                                        disabled={!scenario.lockLoan}
+                                                        isGlobal={!scenario.lockLoan}
+                                                        className="mb-1"
+                                                        subLabel={
+                                                            <div className="flex justify-end items-center gap-1">
+                                                                {/* Show Current Balance always if different from originated */}
+                                                                {showBalanceLabel && (
+                                                                    <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded font-bold" title="Balance as of today (includes historical extra payments)">
+                                                                        Current Balance: {formatCurrency(calculated.startingBalance)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        }
+                                                    />
+                                                )}
+                                            </div>
+                                            
+                                            {/* Moved Start Date Here */}
+                                            <div className="flex justify-between items-center mb-3">
+                                                <div className="flex items-center gap-1">
+                                                    <label className={`text-[9px] font-semibold ${labelColor}`}>Start Date</label>
+                                                    <Tooltip text="Origination date. If set in the past, historical extra payments will be applied to calculate Current Balance." />
+                                                </div>
+                                                <input 
+                                                    type="date"
+                                                    value={scenario.startDate || ''}
+                                                    onChange={(e) => onUpdate(scenario.id, { startDate: e.target.value })}
+                                                    className={`text-xs p-0.5 border rounded ${inputClass} w-28 text-right`}
+                                                    disabled={!!scenario.primaryBalanceLocked} // Disable start date if manual override is on
                                                 />
                                             </div>
+
+                                            {/* MOVED & REDESIGNED: Extra Payments (Recurring) Inline */}
+                                            <div className={`mt-2 mb-3 pt-2 border-t border-dashed border-gray-200 dark:border-gray-700 ${getInputHighlightClass(['extra-pay'])}`}>
+                                                
+                                                {/* Warning Banner for Manual Overrides */}
+                                                {hasManualOverrides && (
+                                                    <div className="mb-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-col gap-1">
+                                                        <div className="flex gap-1.5 items-start">
+                                                            <AlertTriangle size={12} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                                            <div>
+                                                                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 block">Manual Overrides Active</span>
+                                                                <span className="text-[9px] text-amber-600 dark:text-amber-400 leading-tight block">
+                                                                    Some months have specific manual payments that block these global settings.
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => onUpdate(scenario.id, { manualExtraPayments: {} })}
+                                                            className="text-[9px] font-bold text-amber-700 dark:text-amber-300 underline self-end hover:no-underline"
+                                                        >
+                                                            Clear Manual Changes
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                <div className="mb-2">
+                                                    <SliderInput 
+                                                        label="Extra Mortgage Payment" 
+                                                        value={scenario.monthlyExtraPayment} 
+                                                        onChange={v => handleChange('monthlyExtraPayment', v)} 
+                                                        min={0} max={5000} step={50} theme={theme} 
+                                                    />
+                                                    <div className="flex justify-end">
+                                                        <div className="w-1/2">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <label className={`text-[9px] font-semibold ${labelColor}`}>Frequency</label>
+                                                            </div>
+                                                            <select 
+                                                                value={scenario.monthlyExtraPaymentFrequency || 'monthly'} 
+                                                                onChange={e => onUpdate(scenario.id, {monthlyExtraPaymentFrequency: e.target.value as any})}
+                                                                className={`w-full text-xs p-1 border rounded ${inputClass}`}
+                                                            >
+                                                                <option value="weekly">Weekly</option>
+                                                                <option value="biweekly">Every 2 weeks</option>
+                                                                <option value="monthly">Monthly</option>
+                                                                <option value="annually">Annually</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Interest Savings Badge */}
+                                                <div className="flex justify-between items-start h-3 mt-1">
+                                                    <div>
+                                                        {showEffectiveExtra && (
+                                                            <span className="text-[9px] text-gray-400 italic">
+                                                                (~{formatCurrency(effectiveMonthlyExtra)} / mo)
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-[9px] text-right text-emerald-600 dark:text-emerald-400 font-medium">
+                                                        {calculated.lifetimeInterestSaved > 0 && `Saves ${formatCurrency(calculated.lifetimeInterestSaved)} in interest`}
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             <div className={`flex gap-2 mb-2 ${getInputHighlightClass(['loan-rate', 'loan-term', 'netPayment', 'refund'])}`}>
                                                 <div className="w-1/2">
                                                     <label className={`text-[9px] font-semibold ${labelColor} block mb-0.5`}>Rate (%)</label>
@@ -1125,15 +1298,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                                     />
                                                 </div>
                                             </div>
-                                            <div className="flex justify-between items-center mb-1">
-                                                <label className={`text-[9px] font-semibold ${labelColor}`}>Start Date</label>
-                                                <input 
-                                                    type="date"
-                                                    value={scenario.startDate || ''}
-                                                    onChange={(e) => onUpdate(scenario.id, { startDate: e.target.value })}
-                                                    className={`text-xs p-0.5 border rounded ${inputClass} w-28 text-right`}
-                                                />
-                                            </div>
+                                            
                                             <div className={getInputHighlightClass(['loan-fees'])}>
                                                 <OneTimeExpensesList 
                                                     expenses={scenario.primaryLoanExpenses || []}
@@ -1149,8 +1314,16 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                         {scenario.additionalLoans && scenario.additionalLoans.length > 0 && (
                                             <div className="space-y-3 mt-3 mb-3">
                                                 {scenario.additionalLoans.map((loan) => {
-                                                    const subLoanCalc = calculateCurrentBalance(loan.balance, loan.rate, loan.years, loan.startDate);
+                                                    const subLoanCalc = calculateCurrentBalance(loan.balance, loan.rate, loan.years, loan.startDate, {
+                                                        monthlyExtraPayment: loan.monthlyExtraPayment,
+                                                        monthlyExtraPaymentFrequency: loan.monthlyExtraPaymentFrequency
+                                                    });
                                                     const showSubBal = Math.abs(subLoanCalc - loan.balance) > 10;
+                                                    
+                                                    // Helper for effective monthly display
+                                                    const subEffectiveExtra = convertToMonthlyContribution(loan.monthlyExtraPayment || 0, loan.monthlyExtraPaymentFrequency || 'monthly');
+                                                    const showSubEffective = (loan.monthlyExtraPayment || 0) > 0 && loan.monthlyExtraPaymentFrequency !== 'monthly';
+
                                                     return (
                                                     <div 
                                                         key={loan.id} 
@@ -1204,7 +1377,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                                                 <span className="absolute right-4 top-1 text-[8px] text-gray-400">Yr</span>
                                                             </div>
                                                         </div>
-                                                        <div className="flex justify-between items-center">
+                                                        <div className="flex justify-between items-center mb-2">
                                                             <label className={`text-[9px] font-semibold ${labelColor}`}>Start Date</label>
                                                             <input 
                                                                 type="date"
@@ -1213,6 +1386,41 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                                                 className={`text-xs p-0.5 border rounded ${inputClass} w-24 text-right`}
                                                             />
                                                         </div>
+
+                                                        {/* Sub-Loan Extra Payments */}
+                                                        <div className="pt-2 border-t border-dashed border-gray-600/20">
+                                                            <div className="mb-2">
+                                                                <SliderInput 
+                                                                    label="Extra Mortgage Payment" 
+                                                                    value={loan.monthlyExtraPayment || 0} 
+                                                                    onChange={v => updateAdditionalLoan(loan.id, 'monthlyExtraPayment', v)} 
+                                                                    min={0} max={2000} step={50} theme={theme} 
+                                                                />
+                                                                <div className="flex justify-end">
+                                                                    <div className="w-1/2">
+                                                                        <div className="flex items-center gap-2 mb-1">
+                                                                            <label className={`text-[9px] font-semibold ${labelColor}`}>Frequency</label>
+                                                                        </div>
+                                                                        <select 
+                                                                            value={loan.monthlyExtraPaymentFrequency || 'monthly'} 
+                                                                            onChange={e => updateAdditionalLoan(loan.id, 'monthlyExtraPaymentFrequency', e.target.value)}
+                                                                            className={`w-full text-xs p-1 border rounded ${inputClass}`}
+                                                                        >
+                                                                            <option value="weekly">Weekly</option>
+                                                                            <option value="biweekly">Every 2 weeks</option>
+                                                                            <option value="monthly">Monthly</option>
+                                                                            <option value="annually">Annually</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                {showSubEffective && (
+                                                                    <div className="text-[9px] text-right text-gray-400 italic mt-0.5">
+                                                                        (~{formatCurrency(subEffectiveExtra)} / mo)
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
                                                         <OneTimeExpensesList 
                                                             expenses={loan.oneTimeExpenses || []}
                                                             onAdd={() => addAddLoanExpense(loan.id)}
@@ -1255,98 +1463,111 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                             className={`flex justify-between items-center cursor-pointer ${getInputHighlightClass(['extra-pay'])}`}
                                             onClick={() => setIsExtraPaymentsOpen(!isExtraPaymentsOpen)}
                                         >
-                                            <span className="text-[9px] font-bold text-gray-400 uppercase">EXTRA PAYMENTS</span>
+                                            <span className="text-[9px] font-bold text-gray-400 uppercase">ADVANCED PAYMENTS</span>
                                             {isExtraPaymentsOpen ? <ChevronDown size={12} className="text-gray-400" /> : <ChevronRight size={12} className="text-gray-400" />}
                                         </div>
                                         
                                         {isExtraPaymentsOpen && (
                                         <div className={`animate-in fade-in slide-in-from-top-1 mt-2 ${getInputHighlightClass(['extra-pay'])}`}>
-                                            <div className="mb-2">
-                                                <SliderInput label="Extra Monthly Payment" value={scenario.monthlyExtraPayment} onChange={v => handleChange('monthlyExtraPayment', v)} min={0} max={5000} step={50} theme={theme} />
-                                                <div className="flex justify-end -mt-1 mb-2 gap-2">
-                                                    <div className="w-1/2">
-                                                        <label className={`text-[9px] font-semibold ${labelColor} block mb-0.5`}>Start after month</label>
+                                            <div className={`p-2 rounded border border-dashed ${theme==='light'?'border-gray-300 bg-gray-50':'border-gray-700 bg-black/20'}`}>
+                                                
+                                                {/* Start Payment (Delay) */}
+                                                <div className="flex justify-between items-center mb-2">
+                                                     <label className={`font-semibold text-[10px] ${labelColor}`}>Start at Payment No</label>
+                                                     <div className="flex items-center gap-2">
                                                         <input 
                                                             type="number"
-                                                            value={scenario.extraPaymentDelayMonths || 0}
-                                                            onChange={e => onUpdate(scenario.id, {extraPaymentDelayMonths: parseInt(e.target.value) || 0})}
-                                                            className={`w-full text-xs p-1 border rounded ${inputClass}`}
-                                                            min={0}
+                                                            value={(scenario.extraPaymentDelayMonths || 0) + 1}
+                                                            onChange={e => {
+                                                                const val = parseInt(e.target.value) || 1;
+                                                                onUpdate(scenario.id, {extraPaymentDelayMonths: Math.max(0, val - 1)});
+                                                            }}
+                                                            className={`w-12 p-1 border rounded text-center text-[10px] ${inputClass}`}
+                                                            min={1}
                                                         />
-                                                    </div>
-                                                    <div className="w-1/2">
-                                                        <label className={`text-[9px] font-semibold ${labelColor} block mb-0.5`}>Frequency</label>
-                                                        <select 
-                                                            value={scenario.monthlyExtraPaymentFrequency || 'monthly'} 
-                                                            onChange={e => onUpdate(scenario.id, {monthlyExtraPaymentFrequency: e.target.value as any})}
-                                                            className={`w-full text-xs p-1 border rounded ${inputClass}`}
-                                                        >
-                                                            <option value="monthly">Monthly</option>
-                                                            <option value="annually">Annually (Spread)</option>
-                                                        </select>
-                                                    </div>
+                                                        <span className="opacity-50 font-mono text-[9px]">{getExtraPaymentStartDate(scenario.extraPaymentDelayMonths||0)}</span>
+                                                     </div>
                                                 </div>
-                                            </div>
-                                            
-                                            <div className="mb-2 pt-2 border-t border-dashed border-gray-600/30">
-                                                <SliderInput label="Annual Lump Sum" value={scenario.annualLumpSumPayment || 0} onChange={v => handleChange('annualLumpSumPayment', v)} min={0} max={50000} step={500} theme={theme} />
-                                                <div className="flex justify-end -mt-1 mb-1">
-                                                    <div className="w-1/2">
-                                                        <label className={`text-[9px] font-semibold ${labelColor} block mb-0.5`}>Paid in Month</label>
-                                                        <select 
+
+                                                {/* Annual Lump Sum */}
+                                                <div className="flex flex-col gap-2 pt-2 border-t border-dashed border-gray-400/30">
+                                                    <div className="flex justify-between items-center">
+                                                         <label className={`font-semibold text-[10px] ${labelColor}`}>Extra Annual Payment</label>
+                                                         <div className="w-24">
+                                                             <MoneyInput 
+                                                                value={scenario.annualLumpSumPayment || 0} 
+                                                                onChange={v => handleChange('annualLumpSumPayment', v)}
+                                                                theme={theme}
+                                                                className="w-full text-[10px] p-1"
+                                                             />
+                                                         </div>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                         <label className={`font-semibold text-[10px] ${labelColor}`}>Month of Year (1-12)</label>
+                                                         <select 
                                                             value={scenario.annualLumpSumMonth || 0} 
                                                             onChange={e => onUpdate(scenario.id, {annualLumpSumMonth: parseInt(e.target.value)})}
-                                                            className={`w-full text-xs p-1 border rounded ${inputClass}`}
+                                                            className={`w-12 p-1 border rounded text-center text-[10px] ${inputClass}`}
                                                         >
-                                                            <option value={0}>January</option>
-                                                            <option value={1}>February</option>
-                                                            <option value={2}>March</option>
-                                                            <option value={3}>April</option>
-                                                            <option value={4}>May</option>
-                                                            <option value={5}>June</option>
-                                                            <option value={6}>July</option>
-                                                            <option value={7}>August</option>
-                                                            <option value={8}>September</option>
-                                                            <option value={9}>October</option>
-                                                            <option value={10}>November</option>
-                                                            <option value={11}>December</option>
+                                                            {Array.from({length: 12}, (_, i) => (
+                                                                <option key={i} value={i}>{i + 1}</option>
+                                                            ))}
                                                         </select>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Totals Row */}
+                                                <div className="mt-2 pt-2 border-t border-dashed border-gray-400/30 grid grid-cols-2 gap-4 text-[10px]">
+                                                    <div>
+                                                        <span className={`block opacity-70`}>Total Extra Payments</span>
+                                                        <span className={`font-bold ${theme==='light'?'text-gray-900':'text-gray-100'}`}>{formatCurrency(calculated.totalExtraPrincipal)}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className={`block opacity-70`}>Interest Savings</span>
+                                                        <span className={`font-bold text-emerald-500`}>{formatCurrency(calculated.lifetimeInterestSaved)}</span>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="pt-2 border-t border-dashed border-gray-600/30">
-                                                <SliderInput label="One-Time Payment" value={scenario.oneTimeExtraPayment} onChange={v => handleChange('oneTimeExtraPayment', v)} min={0} max={500000} step={1000} theme={theme} />
+                                            <div className="pt-2 mt-2 border-t border-dashed border-gray-600/30">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <SliderInput 
+                                                        label="One-Time Payment" 
+                                                        value={scenario.oneTimeExtraPayment} 
+                                                        onChange={v => handleChange('oneTimeExtraPayment', v)} 
+                                                        min={0} max={500000} step={1000} theme={theme} 
+                                                        className="flex-1"
+                                                    />
+                                                </div>
+                                                <div className="flex justify-end items-center gap-2 mb-2">
+                                                     <label className={`text-[9px] font-semibold ${labelColor}`}>Apply at Month (Loan Age)</label>
+                                                     <input 
+                                                        type="number" 
+                                                        value={scenario.oneTimeExtraPaymentMonth || 1}
+                                                        onChange={e => onUpdate(scenario.id, { oneTimeExtraPaymentMonth: parseInt(e.target.value) })}
+                                                        className={`w-16 text-xs p-1 border rounded text-center ${inputClass}`}
+                                                        min={1}
+                                                     />
+                                                </div>
                                             </div>
 
-                                            {(calculated.lifetimeInterestSaved > 0 || calculated.monthsSaved > 0) && (
-                                                <div className={`mt-2 p-2 rounded text-[10px] ${theme==='light'?'bg-emerald-50 text-emerald-800 border border-emerald-100':'bg-emerald-900/20 text-emerald-300 border border-emerald-900'}`}>
-                                                    <div className="flex justify-between font-bold mb-1 border-b border-emerald-200 dark:border-emerald-800 pb-1">
-                                                        <span className="uppercase opacity-70">Impact of Extra</span>
-                                                        <span className="text-emerald-600 dark:text-emerald-400">Savings</span>
-                                                    </div>
-                                                    <div className="flex justify-between mb-0.5">
-                                                        <span>Interest Saved</span>
-                                                        <span className="font-bold">{formatCurrency(calculated.lifetimeInterestSaved)}</span>
-                                                    </div>
-                                                    <div className="flex justify-between mb-2">
-                                                        <span>Time Saved</span>
-                                                        <span className="font-bold">{(calculated.monthsSaved/12).toFixed(1)} years</span>
-                                                    </div>
+                                            {/* Baseline Payoff Date Info */}
+                                            {scenario.startDate && calculated.baselinePayoffDate && (
+                                                <div className="mt-2 text-[9px] opacity-70 text-right">
+                                                    <div>Original Payoff: {calculated.baselinePayoffDate}</div>
+                                                    <div>New Payoff: {calculated.payoffDate}</div>
                                                 </div>
                                             )}
                                         </div>
                                         )}
                                     </div>
                                 </div>
-                            ) : (
-                                <div className="hidden"></div>
                             )}
                         </div>
-                        )}
+                        
 
                         {/* 2. PROPERTY COSTS */}
-                        {!scenario.isInvestmentOnly && (
+                        
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
                              <div 
                                 className="flex justify-between items-center cursor-pointer"
@@ -1376,56 +1597,53 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                             
                             {isPropCostsOpen && (
                             <div className={`transition-opacity duration-200 animate-in fade-in slide-in-from-top-1 ${isPropCostsEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none grayscale'}`}>
-                                {!scenario.isRentOnly && (
-                                    <>
-                                        <div className={getInputHighlightClass(['prop-tax', 'netPayment', 'refund'])}>
-                                            <FlexibleInput
-                                                label="Property Tax ($/yr)"
-                                                amountValue={scenario.propertyTax}
-                                                baseValue={scenario.homeValue}
-                                                onAmountChange={(v) => onUpdate(scenario.id, { propertyTax: v, usePropertyTaxRate: false })}
-                                                minAmount={0} maxAmount={50000} stepAmount={100} theme={theme}
-                                            />
-                                        </div>
-                                        
-                                        <div className={getInputHighlightClass(['home-ins', 'netPayment'])}>
-                                            <FlexibleInput
-                                                label="Insurance ($/yr)"
-                                                amountValue={scenario.homeInsurance}
-                                                baseValue={scenario.homeValue}
-                                                onAmountChange={(v) => onUpdate(scenario.id, { homeInsurance: v, useHomeInsuranceRate: false })}
-                                                minAmount={0} maxAmount={10000} stepAmount={50} theme={theme}
-                                            />
-                                        </div>
+                                
+                                <div className={getInputHighlightClass(['prop-tax', 'netPayment', 'refund'])}>
+                                    <FlexibleInput
+                                        label="Property Tax ($/yr)"
+                                        amountValue={scenario.propertyTax}
+                                        baseValue={scenario.homeValue}
+                                        onAmountChange={(v) => onUpdate(scenario.id, { propertyTax: v, usePropertyTaxRate: false })}
+                                        minAmount={0} maxAmount={50000} stepAmount={100} theme={theme}
+                                    />
+                                </div>
+                                
+                                <div className={getInputHighlightClass(['home-ins', 'netPayment'])}>
+                                    <FlexibleInput
+                                        label="Insurance ($/yr)"
+                                        amountValue={scenario.homeInsurance}
+                                        baseValue={scenario.homeValue}
+                                        onAmountChange={(v) => onUpdate(scenario.id, { homeInsurance: v, useHomeInsuranceRate: false })}
+                                        minAmount={0} maxAmount={10000} stepAmount={50} theme={theme}
+                                    />
+                                </div>
 
-                                        <div className={getInputHighlightClass(['hoa', 'netPayment'])}>
-                                            <FlexibleInput
-                                                label="HOA ($/yr)"
-                                                amountValue={scenario.hoa}
-                                                baseValue={scenario.homeValue}
-                                                onAmountChange={(v) => onUpdate(scenario.id, { hoa: v, useHoaRate: false })}
-                                                minAmount={0} maxAmount={24000} stepAmount={50} theme={theme}
-                                            />
-                                        </div>
+                                <div className={getInputHighlightClass(['hoa', 'netPayment'])}>
+                                    <FlexibleInput
+                                        label="HOA ($/yr)"
+                                        amountValue={scenario.hoa}
+                                        baseValue={scenario.homeValue}
+                                        onAmountChange={(v) => onUpdate(scenario.id, { hoa: v, useHoaRate: false })}
+                                        minAmount={0} maxAmount={24000} stepAmount={50} theme={theme}
+                                    />
+                                </div>
 
-                                        <div className={getInputHighlightClass(['pmi', 'netPayment'])}>
-                                            <FlexibleInput
-                                                label="PMI ($/yr)"
-                                                amountValue={scenario.pmi}
-                                                baseValue={scenario.loanAmount}
-                                                onAmountChange={(v) => onUpdate(scenario.id, { pmi: v, usePmiRate: false })}
-                                                minAmount={0} maxAmount={10000} stepAmount={50} theme={theme}
-                                            />
-                                        </div>
-                                    </>
-                                )}
+                                <div className={getInputHighlightClass(['pmi', 'netPayment'])}>
+                                    <FlexibleInput
+                                        label="PMI ($/yr)"
+                                        amountValue={scenario.pmi}
+                                        baseValue={scenario.loanAmount}
+                                        onAmountChange={(v) => onUpdate(scenario.id, { pmi: v, usePmiRate: false })}
+                                        minAmount={0} maxAmount={10000} stepAmount={50} theme={theme}
+                                    />
+                                </div>
+                                    
                             </div>
                             )}
                         </div>
-                        )}
-
-                         {/* 3. BUYING / SELLING (Moved Up) */}
-                        {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
+                        
+                        {/* 3. BUYING / SELLING (Moved Up) */}
+                        
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
                              <div 
                                 className={`flex justify-between items-center cursor-pointer ${getInputHighlightClass(['close-cost', 'sell-cost', 'cap-gains'])}`}
@@ -1438,7 +1656,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                     <label className="flex items-center cursor-pointer relative" onClick={e => e.stopPropagation()}>
                                         <input 
                                             type="checkbox" 
-                                            checked={scenario.enableSelling !== false} 
+                                            checked={scenario.enableSelling} 
                                             onChange={(e) => onUpdate(scenario.id, { enableSelling: e.target.checked })}
                                             className="sr-only peer"
                                         />
@@ -1449,7 +1667,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                             </div>
                             
                             {isSellingOpen && (
-                                <div className={`animate-in fade-in slide-in-from-top-1 mt-2 transition-opacity duration-200 ${scenario.enableSelling !== false ? 'opacity-100' : 'opacity-40 pointer-events-none grayscale'}`}>
+                                <div className={`animate-in fade-in slide-in-from-top-1 mt-2 transition-opacity duration-200 ${scenario.enableSelling ? 'opacity-100' : 'opacity-40 pointer-events-none grayscale'}`}>
                                     <div className={getInputHighlightClass(['close-cost'])}>
                                         <FlexibleInput
                                             label="Closing Costs (Buy Side)"
@@ -1529,10 +1747,10 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                 </div>
                             )}
                         </div>
-                        )}
+                        
 
                         {/* 4. RENT (Moved Down) */}
-                        {!scenario.isInvestmentOnly && (
+                        
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
                              <div 
                                 className="flex justify-between items-center mb-2 cursor-pointer"
@@ -1671,7 +1889,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                             </div>
                             )}
                         </div>
-                        )}
+                        
                         
                         {/* 6. INVESTING */}
                         <div className="space-y-2 pb-2 border-b border-gray-300 dark:border-gray-600">
@@ -1784,27 +2002,86 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                 <div className="flex flex-col gap-3">
                     {/* ... (Existing Right Side Cards) ... */}
                     {/* 0. PITI MINI CARD */}
-                    {!scenario.isInvestmentOnly && (
-                        <div className={`rounded-lg border p-2 flex flex-col gap-2 shadow-sm ${theme==='light'?'bg-blue-50/50 border-blue-200 text-blue-900':'bg-blue-900/10 border-blue-800 text-blue-100'}`}>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <PieChart size={14} className="text-blue-500" />
-                                    <span className="text-[10px] font-bold uppercase tracking-wider">{getPitiTitle()}</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-bold block">{formatCurrency(rMonthlyPITI)}</span>
-                                </div>
+                    
+                    <div className={`rounded-lg border p-2 flex flex-col gap-2 shadow-sm ${theme==='light'?'bg-blue-50/50 border-blue-200 text-blue-900':'bg-blue-900/10 border-blue-800 text-blue-100'}`}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <PieChart size={14} className="text-blue-500" />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">{getPitiTitle()}</span>
                             </div>
-                            <div className="flex flex-wrap gap-2 text-[9px] opacity-70 justify-end">
-                                {!scenario.isRentOnly && <span>P&I: {formatCurrency(Math.round(calculated.monthlyPrincipalAndInterest))}</span>}
-                                {scenario.isRentOnly && <span>Rent: {formatCurrency(Math.round(calculated.totalMonthlyPayment - calculated.monthlyCustomExpenses))}</span>}
-                                {!scenario.isRentOnly && <span>Tax: {formatCurrency(Math.round(calculated.monthlyTax))}</span>}
-                                {!scenario.isRentOnly && <span>Ins: {formatCurrency(Math.round(calculated.monthlyInsurance))}</span>}
-                                {!scenario.isRentOnly && <span>Fees: {formatCurrency(Math.round(calculated.monthlyHOA + calculated.monthlyPMI))}</span>}
+                            <div className="text-right">
+                                <span className="text-sm font-bold block">{formatCurrency(rMonthlyPITI)}</span>
                             </div>
                         </div>
-                    )}
+                        <div className="flex flex-wrap gap-2 text-[9px] opacity-70 justify-end">
+                            {scenario.includeHome !== false && <span>P&I: {formatCurrency(Math.round(calculated.monthlyPrincipalAndInterest))}</span>}
+                            {scenario.includeRent !== false && scenario.isRentOnly && <span>Rent: {formatCurrency(Math.round(calculated.totalMonthlyPayment - calculated.monthlyCustomExpenses))}</span>}
+                            {scenario.includeHome !== false && <span>Tax: {formatCurrency(Math.round(calculated.monthlyTax))}</span>}
+                            {scenario.includeHome !== false && <span>Ins: {formatCurrency(Math.round(calculated.monthlyInsurance))}</span>}
+                            {scenario.includeHome !== false && <span>Fees: {formatCurrency(Math.round(calculated.monthlyHOA + calculated.monthlyPMI))}</span>}
+                        </div>
+                    </div>
 
+                    {/* NEW: SNAPSHOT CARD */}
+                    <div className={`rounded-lg border p-3 flex flex-col gap-3 shadow-sm ${theme==='light'?'bg-white border-gray-200':'bg-white/5 border-gray-700'}`}>
+                        <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700 pb-2">
+                            <Activity size={14} className="text-purple-500" />
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Final Results</span>
+                        </div>
+                        
+                        <div className="space-y-3">
+                            <div 
+                                className="flex justify-between items-center p-1 -mx-1 rounded hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-default"
+                                onMouseEnter={() => setHoveredMetric('outOfPocket')} 
+                                onMouseLeave={() => setHoveredMetric(null)}
+                            >
+                                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Out-of-Pocket</span>
+                                <span className={`text-sm font-bold ${theme==='light'?'text-gray-900':'text-gray-100'}`}>{formatCurrency(rOutOfPocket)}</span>
+                            </div>
+
+                            <div 
+                                className="flex justify-between items-center p-1 -mx-1 rounded hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-default"
+                                onMouseEnter={() => setHoveredMetric('profit')} 
+                                onMouseLeave={() => setHoveredMetric(null)}
+                            >
+                                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Profit</span>
+                                <span className="text-sm font-bold text-emerald-500">{formatCurrency(rProfit)}</span>
+                            </div>
+                            
+                            {scenario.includeHome !== false && (
+                                <div 
+                                    className="flex justify-between items-center p-1 -mx-1 rounded hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-default"
+                                    onMouseEnter={() => setHoveredMetric('loanBalance')} 
+                                    onMouseLeave={() => setHoveredMetric(null)}
+                                >
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Loan Balance at Sale</span>
+                                    <span className={`text-sm font-bold ${theme==='light'?'text-gray-900':'text-gray-100'}`}>{formatCurrency(rLoanBalance)}</span>
+                                </div>
+                            )}
+
+                            {scenario.includeHome !== false && scenario.enableSelling !== false && (
+                                <div 
+                                    className="flex justify-between items-center p-1 -mx-1 rounded hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-default"
+                                    onMouseEnter={() => setHoveredMetric('netCash')} 
+                                    onMouseLeave={() => setHoveredMetric(null)}
+                                >
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Net Cash After Sale</span>
+                                    <span className={`text-sm font-bold ${theme==='light'?'text-gray-900':'text-gray-100'}`}>{formatCurrency(rCashAfterSale)}</span>
+                                </div>
+                            )}
+
+                            <div 
+                                className="flex justify-between items-center border-t border-dashed border-gray-200 dark:border-gray-700 pt-2 p-1 -mx-1 rounded hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-default"
+                                onMouseEnter={() => setHoveredMetric('netWorth')} 
+                                onMouseLeave={() => setHoveredMetric(null)}
+                            >
+                                <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase">Net Worth</span>
+                                <span className="text-lg font-extrabold text-blue-600 dark:text-blue-400">{formatCurrency(rNetWorth)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ... (Rest of summary card content remains unchanged) */}
                     {/* 1. TOTAL RETURN (Unified Profit) */}
                     <div className={`border rounded-lg ${theme==='light'?'border-gray-200 bg-gray-50':'border-gray-700 bg-black/20'}`}>
                         <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 rounded-t-lg">
@@ -1812,21 +2089,36 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                             <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">FINANCIAL SUMMARY</span>
                         </div>
                         <div className="p-2 space-y-1">
-                            {!scenario.isRentOnly && !scenario.isInvestmentOnly ? (
+                            {scenario.includeHome !== false ? (
                                 <>
                                     {/* 1. Mortgage Payments Breakdown (Principal & Interest) */}
                                     {calculated.loanBreakdown && calculated.loanBreakdown.length > 0 ? (
-                                        calculated.loanBreakdown.map(l => (
+                                        calculated.loanBreakdown.map(l => {
+                                            const scheduled = l.principalPaid - (l.extraPrincipalPaid || 0);
+                                            const extra = l.extraPrincipalPaid || 0;
+                                            
+                                            return (
                                             <React.Fragment key={`pay-group-${l.id}`}>
-                                                {/* Principal */}
+                                                {/* Scheduled Principal */}
                                                 <BreakdownRow 
-                                                    label={l.id === 'primary' ? 'Principal From Mortgage Payments' : `Principal (${l.name})`}
-                                                    value={`+${formatCurrency(Math.round(l.principalPaid))}`} 
+                                                    label={l.id === 'primary' ? 'Scheduled Principal' : `Principal (${l.name})`}
+                                                    value={`+${formatCurrency(Math.round(scheduled))}`} 
                                                     colorClass="text-emerald-500 font-bold" 
                                                     icon={<CreditCard size={10} />} 
-                                                    tooltip={`Principal portion of payments for ${l.name}`} 
+                                                    tooltip={`Regular principal portion of monthly payments`}
                                                     {...getRowProps('principal')}
                                                 />
+                                                {/* Extra Principal if any */}
+                                                {extra > 0 && (
+                                                    <BreakdownRow 
+                                                        label={l.id === 'primary' ? 'Extra Principal Paid' : `Extra Principal (${l.name})`}
+                                                        value={`+${formatCurrency(Math.round(extra))}`} 
+                                                        colorClass="text-emerald-600 font-bold" 
+                                                        icon={<CreditCard size={10} />} 
+                                                        tooltip={`Additional principal paid via extra payments`}
+                                                        {...getRowProps('principal')} // same highlight group
+                                                    />
+                                                )}
                                                 {/* Interest */}
                                                 <BreakdownRow 
                                                     label={l.id === 'primary' ? 'Interest' : `Interest (${l.name})`}
@@ -1837,7 +2129,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                                     {...getRowProps('payments')}
                                                 />
                                             </React.Fragment>
-                                        ))
+                                        )})
                                     ) : (
                                         <>
                                             <BreakdownRow 
@@ -1858,29 +2150,26 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                     )}
 
                                     {/* NEW: Property Tax & Insurance Rows */}
-                                    {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                                        <>
-                                            {Math.round(calculated.monthlyTax * projectionYears * 12) > 0 && (
-                                                <BreakdownRow 
-                                                    label="Property Tax Paid" 
-                                                    value={`-${formatCurrency(Math.round(calculated.monthlyTax * projectionYears * 12))}`} 
-                                                    colorClass="text-red-500 font-bold" 
-                                                    icon={<Landmark size={10} />} 
-                                                    tooltip="Total Property Tax paid over time" 
-                                                    {...getRowProps('propTax')}
-                                                />
-                                            )}
-                                            {Math.round(calculated.monthlyInsurance * projectionYears * 12) > 0 && (
-                                                <BreakdownRow 
-                                                    label="Home Insurance Paid" 
-                                                    value={`-${formatCurrency(Math.round(calculated.monthlyInsurance * projectionYears * 12))}`} 
-                                                    colorClass="text-red-500 font-bold" 
-                                                    icon={<ShieldCheck size={10} />} 
-                                                    tooltip="Total Home Insurance paid over time" 
-                                                    {...getRowProps('homeIns')}
-                                                />
-                                            )}
-                                        </>
+                                    
+                                    {Math.round(calculated.monthlyTax * projectionYears * 12) > 0 && (
+                                        <BreakdownRow 
+                                            label="Property Tax Paid" 
+                                            value={`-${formatCurrency(Math.round(calculated.monthlyTax * projectionYears * 12))}`} 
+                                            colorClass="text-red-500 font-bold" 
+                                            icon={<Landmark size={10} />} 
+                                            tooltip="Total Property Tax paid over time" 
+                                            {...getRowProps('propTax')}
+                                        />
+                                    )}
+                                    {Math.round(calculated.monthlyInsurance * projectionYears * 12) > 0 && (
+                                        <BreakdownRow 
+                                            label="Home Insurance Paid" 
+                                            value={`-${formatCurrency(Math.round(calculated.monthlyInsurance * projectionYears * 12))}`} 
+                                            colorClass="text-red-500 font-bold" 
+                                            icon={<ShieldCheck size={10} />} 
+                                            tooltip="Total Home Insurance paid over time" 
+                                            {...getRowProps('homeIns')}
+                                        />
                                     )}
 
                                     {/* 3. Rental Income (Gross) (Inflow) */}
@@ -2012,7 +2301,7 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                         />
                                     )}
                                     
-                                    {(scenario.enableSelling !== false) && (
+                                    {(scenario.enableSelling) && (
                                         <>
                                             <BreakdownRow 
                                                 label={`Selling Costs (${scenario.sellingCostRate}%)`} 
@@ -2081,196 +2370,50 @@ x Tax Rate (${scenario.capitalGainsTaxRate ?? 0}%): ${formatCurrency(calculated.
                                     {(scenario.includeInvestment !== false) && (
                                         <BreakdownRow 
                                             label={`Investment Tax (${!isGlobalInvestment ? (scenario.investmentTaxRate ?? 20) : (globalInvestmentSettings?.globalInvestmentTaxRate ?? 20)}%)`} 
-                                            value={rInvTax > 0 ? `-${formatCurrency(Math.abs(rInvTax))}` : '-$0'} 
+                                            value={`-${formatCurrency(rInvTax)}`} 
                                             colorClass="text-red-500 font-bold" 
                                             icon={<Scale size={10} />} 
-                                            tooltip="Tax paid on investment gains" 
+                                            tooltip="Tax paid on investment gains (Asset Drag)" 
                                             {...getRowProps('invTax')}
                                         />
                                     )}
-
-                                    {/* Down Payment & Closing Costs displayed at very bottom if not handled */}
-                                    {rDown > 0 && (
-                                        <div className="hidden"></div> // Already handled in breakdown if needed, but usually we hide unless part of "Out of Pocket" metric which is separate
-                                    )}
                                 </>
                             ) : (
-                                <>
-                                    <BreakdownRow 
-                                        label="Investment Growth (Gross)" 
-                                        value={`${rInvGrowthGross >= 0 ? '+' : ''}${formatCurrency(rInvGrowthGross)}`} 
-                                        colorClass={`${rInvGrowthGross >= 0 ? 'text-emerald-500' : 'text-red-500'} font-bold`} 
-                                        icon={<TrendingUp size={10} />} 
-                                        tooltip="Profit from portfolio (Interest Only)" 
-                                        {...getRowProps('invGrowth')}
-                                    />
-                                    {scenario.isRentOnly && (
-                                        <BreakdownRow 
-                                            label="Rent Payments" 
-                                            value={`-${formatCurrency(Math.abs(rTotalPaid))}`} 
-                                            colorClass="text-red-500 font-bold" 
-                                            icon={<CreditCard size={10} />} 
-                                            {...getRowProps('payments')}
-                                        />
-                                    )}
-                                    
-                                    <BreakdownRow 
-                                        label={`Investment Tax (${!isGlobalInvestment ? (scenario.investmentTaxRate ?? 20) : (globalInvestmentSettings?.globalInvestmentTaxRate ?? 20)}%)`} 
-                                        value={rInvTax > 0 ? `-${formatCurrency(Math.abs(rInvTax))}` : '-$0'} 
-                                        colorClass="text-red-500 font-bold" 
-                                        icon={<Scale size={10} />} 
-                                        tooltip="Tax paid on investment gains" 
-                                        {...getRowProps('invTax')}
-                                    />
-                                    
-                                    {rCustomExpenses > 0 && (
-                                        <BreakdownRow 
-                                            label="Addtl. Expenses" 
-                                            value={`-${formatCurrency(Math.abs(rCustomExpenses))}`} 
-                                            colorClass="text-red-500 font-bold" 
-                                            icon={<Zap size={10} />} 
-                                            tooltip="Total Utility/Maintenance costs over time" 
-                                            {...getRowProps('expenses')}
-                                        />
-                                    )}
-                                    {rInitialInv > 0 && (
-                                        <BreakdownRow 
-                                            label="Initial Investment" 
-                                            value={`-${formatCurrency(Math.abs(rInitialInv))}`} 
-                                            colorClass="text-blue-500 font-bold" 
-                                            icon={<PiggyBank size={10} />} 
-                                            tooltip="Starting lump sum allocated to investment" 
-                                            {...getRowProps('initialInv')}
-                                        />
-                                    )}
-                                    {rInvContribution > 0 && (
-                                        <BreakdownRow 
-                                            label="Investment Contributions" 
-                                            value={`-${formatCurrency(Math.abs(rInvContribution))}`} 
-                                            colorClass="text-blue-500 font-bold" 
-                                            icon={<PiggyBank size={10} />} 
-                                            tooltip="Total recurring contributions to portfolio" 
-                                            {...getRowProps('invCont')}
-                                        />
-                                    )}
-                                    {/* If rent mode and custom closing costs exist (unlikely but possible) */}
-                                    {rClosing > 0 && (
-                                        <BreakdownRow 
-                                            label="Closing Costs" 
-                                            value={`-${formatCurrency(Math.abs(rClosing))}`} 
-                                            colorClass="text-red-500 font-bold" 
-                                            icon={<Receipt size={10} />} 
-                                            {...getRowProps('closing')}
-                                        />
-                                    )}
-                                </>
+                                <div className="text-center py-8 text-gray-400 text-xs italic">
+                                    Include Home to see Mortgage breakdown
+                                </div>
                             )}
+
+                            {/* Net Worth Summary Row */}
+                            <div className={`mt-2 pt-2 border-t ${theme==='light'?'border-gray-200':'border-gray-700'} flex justify-between items-center`}>
+                                <span className="text-[10px] font-bold uppercase text-gray-500">Net Worth</span>
+                                <span className={`text-sm font-extrabold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(calculated.netWorth)}</span>
+                            </div>
                         </div>
                     </div>
-
-                    {/* 3. FINAL RESULTS */}
-                    <div className={`border rounded-lg ${theme==='light'?'border-gray-200 bg-gray-50':'border-gray-700 bg-black/20'}`}>
-                        <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 rounded-t-lg">
-                            <Calculator size={12} className="text-gray-500" />
-                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">FINAL RESULTS</span>
-                        </div>
-                        <div className="p-3 space-y-1">
-                             <div 
-                                className="flex justify-between items-center text-xs py-1 cursor-help hover:bg-black/5 dark:hover:bg-white/5 rounded px-1 transition-colors"
-                                onMouseEnter={() => setHoveredMetric('outOfPocket')}
-                                onMouseLeave={() => setHoveredMetric(null)}
-                             >
-                                <div className="flex items-center gap-1">
-                                    <span className="text-gray-500 dark:text-gray-400">Out-of-Pocket</span>
-                                    <Tooltip text="Net cash you paid (Housing costs only for Buy/Refi)" />
-                                </div>
-                                <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(calculated.totalInvestedAmount)}</span>
-                             </div>
-                             
-                             <div 
-                                className="flex justify-between items-center text-xs py-1 border-t border-dashed border-gray-600/20 cursor-help hover:bg-black/5 dark:hover:bg-white/5 rounded px-1 transition-colors"
-                                onMouseEnter={() => setHoveredMetric('profit')}
-                                onMouseLeave={() => setHoveredMetric(null)}
-                             >
-                                <div className="flex items-center gap-1">
-                                    <span className="text-gray-500 dark:text-gray-400">Profit</span>
-                                    <Tooltip text="Total Return: Gains + Income - Costs - Taxes (Housing Only for Buy/Refi)" />
-                                </div>
-                                <span className={`font-bold ${calculated.profit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{formatCurrency(calculated.profit)}</span>
-                             </div>
-
-                             {!scenario.isRentOnly && !scenario.isInvestmentOnly && (
-                             <>
-                                <div 
-                                    className="flex justify-between items-center text-xs py-1 cursor-help hover:bg-black/5 dark:hover:bg-white/5 rounded px-1 transition-colors"
-                                    onMouseEnter={() => setHoveredMetric('loanBalance')}
-                                    onMouseLeave={() => setHoveredMetric(null)}
-                                >
-                                    <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Loan Balance at Sale</span>
-                                        <Tooltip text="Remaining mortgage balance to pay off" />
-                                    </div>
-                                    <span className={`font-medium ${theme==='light'?'text-gray-700':'text-gray-300'}`}>{formatCurrency(rLoanBalance)}</span>
-                                </div>
-                                
-                                <div 
-                                    className="flex justify-between items-center text-xs py-1 cursor-help hover:bg-black/5 dark:hover:bg-white/5 rounded px-1 transition-colors"
-                                    onMouseEnter={() => setHoveredMetric('netCash')}
-                                    onMouseLeave={() => setHoveredMetric(null)}
-                                >
-                                    <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Net Cash After Sale</span>
-                                        <Tooltip text="Cash in pocket if sold today (Equity - Fees - Taxes)" />
-                                    </div>
-                                    <span className={`font-bold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(rCashAfterSale)}</span>
-                                </div>
-                             </>
-                             )}
-
-                             <div 
-                                className="flex justify-between items-center pt-2 mt-2 border-t border-gray-600/30 cursor-help hover:bg-black/5 dark:hover:bg-white/5 rounded px-1 transition-colors"
-                                onMouseEnter={() => setHoveredMetric('netWorth')}
-                                onMouseLeave={() => setHoveredMetric(null)}
-                             >
-                                <span className="text-xs font-bold uppercase text-gray-500 dark:text-gray-400">Net Worth</span>
-                                <span className={`text-xl font-extrabold ${theme==='light'?'text-gray-900':'text-white'}`}>{formatCurrency(calculated.netWorth)}</span>
-                             </div>
-                        </div>
-                    </div>
-
                 </div>
             </div>
         </>
       ) : (
-          <div className="flex justify-between items-center">
-              <div className="flex flex-col">
-                  <span className={`font-bold text-lg ${theme==='light'?'text-gray-800':'text-gray-200'}`}>{scenario.name}</span>
-                  <div className="flex items-center gap-2 text-xs opacity-70">
-                      <span className="uppercase font-semibold">{mainMetricLabel}:</span>
-                      <span className={`font-bold ${metricColor}`}>{formatCurrency(mainMetricValue)}</span>
-                  </div>
-              </div>
-              <div className="flex gap-1">
-                    <button 
-                        onClick={() => setIsExpanded(true)} 
-                        className="text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 p-1" 
-                        title="Show Details"
-                    >
-                        <Eye size={16} />
-                    </button>
-                    <button onClick={() => onViewSchedule(scenario.id)} className="text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 p-1" title="Amortization Schedule">
-                        <Table2 size={16} />
-                    </button>
-                    <button onClick={() => onDuplicate(scenario.id)} className="text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 p-1" title="Duplicate">
-                        <Copy size={16} />
-                    </button>
-                    {canRemove && (
-                    <button onClick={() => onRemove(scenario.id)} className="text-gray-400 hover:text-red-500 p-1" title="Remove">
-                        <Trash2 size={16} />
-                    </button>
-                    )}
-              </div>
-          </div>
+        <div className="flex items-center justify-between">
+             <div className="flex flex-col">
+                <span className="font-bold text-lg">{scenario.name}</span>
+                <span className="text-xs text-gray-500">{getSummaryText()}</span>
+             </div>
+             <div className="text-right">
+                <span className="text-xs text-gray-500 block uppercase font-bold">{mainMetricLabel}</span>
+                <span className={`text-xl font-extrabold ${metricColor}`}>{formatCurrency(mainMetricValue)}</span>
+             </div>
+        </div>
+      )}
+      
+      {/* Footer / Expand Toggle */}
+      {!isExpanded && (
+          <button 
+            onClick={() => setIsExpanded(true)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            title="Expand"
+          />
       )}
     </div>
   );
