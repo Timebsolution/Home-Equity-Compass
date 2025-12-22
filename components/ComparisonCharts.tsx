@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import {
   BarChart,
@@ -89,6 +90,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
       const appreciation = c.totalAppreciation;
       
       // 2. Investment Gains (Profit Only)
+      // This is Gross Growth - Tax. (Net Gain)
       const invGain = Math.max(0, c.investmentPortfolio - c.totalInvestmentContribution - (c.initialCapitalBase || 0));
       
       // 3. Rental Income
@@ -119,8 +121,10 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
           c.sellingCosts
       );
 
-      // 4. Taxes (Capital Gains, Rental, Investment)
-      const taxes = -(c.capitalGainsTax + (c.totalRentalTax || 0) + (c.totalInvestmentTax || 0));
+      // 4. Taxes (Capital Gains, Rental)
+      // NOTE: Removed InvestmentTax because it is already deducted from the Investment Gain (Net Gain).
+      // Including it here would double count the penalty.
+      const taxes = -(c.capitalGainsTax + (c.totalRentalTax || 0));
       
       // 5. Principal Payment (Cash Outflow)
       const principalOutflow = -c.principalPaid;
@@ -226,9 +230,10 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
                 label={{ value: 'Timeline', position: 'insideBottomRight', offset: -5, fill: textColor, fontSize: 10 }}
               />
               <YAxis 
-                tickFormatter={(val) => `$${val/1000}k`} 
+                tickFormatter={(val) => `${val < 0 ? '-' : ''}$${Math.abs(val)/1000}k`} 
                 axisLine={false} 
                 tickLine={false} 
+                domain={['auto', 'auto']}
                 tick={{fontSize: 12, fill: textColor}} 
               >
                  <Label value={yAxisLabel} angle={-90} position="insideLeft" fill={textColor} fontSize={10} />
@@ -300,7 +305,7 @@ export const ComparisonCharts: React.FC<ComparisonChartsProps> = ({ scenarios, c
             <BarChart data={compositionData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }} stackOffset="sign">
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
-              <YAxis tickFormatter={(val) => `$${val/1000}k`} axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
+              <YAxis tickFormatter={(val) => `${val < 0 ? '-' : ''}$${Math.abs(val)/1000}k`} axisLine={false} tickLine={false} tick={{fontSize: 12, fill: textColor}} />
               <Tooltip 
                 content={<CustomTooltip theme={theme} />}
                 cursor={{fill: isDark ? '#404040' : '#f9fafb'}}
