@@ -1,4 +1,5 @@
 
+
 import { LoanScenario, CalculatedLoan, AmortizationPoint, AnnualDataPoint, AdditionalLoan, LoanBreakdown } from '../types';
 
 export const formatCurrency = (value: number): string => {
@@ -35,52 +36,123 @@ export const COLORS = [
 ];
 
 export const convertToMonthlyContribution = (amount: number, frequency: string): number => {
+    // Safety check for numeric input if coming from raw string
+    const numAmount = Number(amount);
+    if (isNaN(numAmount)) return 0;
+    
     switch (frequency) {
-        case 'weekly': return amount * 52 / 12;
-        case 'biweekly': return amount * 26 / 12;
-        case 'monthly': return amount;
-        case 'semiannually': return amount * 2 / 12;
-        case 'annually': return amount / 12;
-        default: return amount;
+        case 'weekly': return numAmount * 52 / 12;
+        case 'biweekly': return numAmount * 26 / 12;
+        case 'monthly': return numAmount;
+        case 'semiannually': return numAmount * 2 / 12; // Average monthly effect
+        case 'annually': return numAmount / 12; // Average monthly effect
+        default: return numAmount;
     }
 };
 
+interface ExtraPaymentConfig {
+    monthlyExtraPayment?: number;
+    monthlyExtraPaymentFrequency?: string;
+    oneTimeExtraPayment?: number;
+    oneTimeExtraPaymentMonth?: number;
+    annualLumpSumPayment?: number;
+    annualLumpSumMonth?: number;
+    extraPaymentDelayMonths?: number;
+    manualExtraPayments?: Record<number, number>;
+}
+
 // Calculate current balance based on amortization from a start date
+// Updated to separate historical vs future extra payment application logic
 export const calculateCurrentBalance = (
     originalBalance: number,
     annualRate: number,
     termYears: number,
-    startDateStr?: string
+    startDateStr?: string,
+    extraConfig?: ExtraPaymentConfig
 ): number => {
     if (!startDateStr) return originalBalance;
 
     const start = new Date(startDateStr);
     const now = new Date();
-    // Calculate full months elapsed (approximate, simple difference)
-    let months = (now.getFullYear() - start.getFullYear()) * 12;
-    months -= start.getMonth();
-    months += now.getMonth();
+    // Calculate full months elapsed
+    let monthsElapsed = (now.getFullYear() - start.getFullYear()) * 12;
+    monthsElapsed -= start.getMonth();
+    monthsElapsed += now.getMonth();
     
     // If loan is in the future, balance is original
-    if (months <= 0) return originalBalance;
+    if (monthsElapsed <= 0) return originalBalance;
 
     const monthlyRate = annualRate / 100 / 12;
-    const totalMonths = termYears * 12;
     
-    // If 0% interest
+    // Calculate Standard Monthly Payment (P&I)
+    // Formula: P = L * [c(1+c)^n] / [(1+c)^n - 1]
+    const totalMonths = termYears * 12;
+    let fixedPmt = 0;
+    
     if (monthlyRate === 0) {
-        const paid = (originalBalance / totalMonths) * months;
-        return Math.max(0, originalBalance - paid);
+        fixedPmt = originalBalance / totalMonths;
+    } else {
+        fixedPmt = originalBalance * (monthlyRate * Math.pow(1 + monthlyRate, totalMonths)) / (Math.pow(1 + monthlyRate, totalMonths) - 1);
     }
 
-    const factorN = Math.pow(1 + monthlyRate, totalMonths);
-    const factorP = Math.pow(1 + monthlyRate, months);
+    // SIMULATE HISTORY
+    let currentBal = originalBalance;
+    const startMonthIndex = start.getMonth(); // 0-11
 
-    // Remaining Balance Formula
-    // B_k = L * [ (1+i)^n - (1+i)^k ] / [ (1+i)^n - 1 ]
-    const balance = originalBalance * (factorN - factorP) / (factorN - 1);
-    
-    return Math.max(0, balance);
+    for (let m = 1; m <= monthsElapsed; m++) {
+        // Robust Calendar Month Calculation
+        const currentCalMonth = (startMonthIndex + m) % 12;
+
+        const interest = currentBal * monthlyRate;
+        let principal = fixedPmt - interest;
+        
+        // Add Historical Extra Payments if configured
+        if (extraConfig) {
+            let extra = 0;
+            
+            // Monthly Extra
+            if (extraConfig.monthlyExtraPayment && extraConfig.monthlyExtraPayment > 0) {
+                // Check delay (m is Loan Age here)
+                if (m > (extraConfig.extraPaymentDelayMonths || 0)) {
+                    const freq = extraConfig.monthlyExtraPaymentFrequency || 'monthly';
+                    if (freq === 'annually') {
+                        // Apply only on loan anniversary months (roughly)
+                        if (m % 12 === 0) extra += extraConfig.monthlyExtraPayment;
+                    } else {
+                        extra += convertToMonthlyContribution(extraConfig.monthlyExtraPayment, freq);
+                    }
+                }
+            }
+            
+            // One Time Extra (m is Loan Age)
+            if (extraConfig.oneTimeExtraPayment && extraConfig.oneTimeExtraPayment > 0) {
+                 if (m === (extraConfig.oneTimeExtraPaymentMonth || 0)) {
+                     extra += extraConfig.oneTimeExtraPayment;
+                 }
+            }
+
+            // Annual Lump Sum (Calendar Month Based)
+            if (extraConfig.annualLumpSumPayment && extraConfig.annualLumpSumPayment > 0) {
+                if (currentCalMonth === (extraConfig.annualLumpSumMonth || 0)) {
+                    extra += extraConfig.annualLumpSumPayment;
+                }
+            }
+
+            // Note: Manual Overrides are intentionally ignored for History 
+            // to avoid collision with Projection indices (which user edits in UI).
+
+            // Apply Extra
+            principal += extra;
+        }
+
+        // Cap principal to balance
+        if (principal > currentBal) principal = currentBal;
+        
+        currentBal -= principal;
+        if (currentBal <= 0) return 0;
+    }
+
+    return Math.max(0, currentBal);
 };
 
 // --- CENTRALIZED INVESTMENT ENGINE ---
@@ -149,7 +221,7 @@ const calculateMonthlyPI = (balance: number, rate: number, years: number) => {
     if (months <= 0) return 0;
     if (balance <= 0) return 0;
     if (rate === 0) return balance / months;
-    return balance * (monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
+    return balance / ((Math.pow(1 + monthlyRate, months) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, months)));
 };
 
 export const calculateLoan = (
@@ -183,6 +255,12 @@ export const calculateLoan = (
         investRate = scenario.investmentRate || 0;
         investTaxRate = scenario.investmentTaxRate || 0;
     }
+    
+    if (scenario.includeInvestment === false) {
+        investCapital = 0;
+        investMonthly = 0;
+    }
+
     const monthlyInvestContribution = convertToMonthlyContribution(investMonthly, investFreq);
 
     // Rent Inputs
@@ -197,23 +275,52 @@ export const calculateLoan = (
     }
 
     // Initialize State
-    // FMV logic: If originalFmv is set and > 0, use it. Else default to Purchase Price (homeValue).
     const startFMV = (scenario.originalFmv && scenario.originalFmv > 0) ? scenario.originalFmv : scenario.homeValue;
     let currentFMV = includeHome ? startFMV : 0;
-    
-    // Instant Equity (Difference between what it's worth vs what you paid)
     const instantEquity = includeHome ? (startFMV - scenario.homeValue) : 0;
     
     // Loan Init
     // Primary
-    let primaryBal = includeHome ? calculateCurrentBalance(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears, scenario.startDate) : 0;
+    let primaryBal = 0;
+    if (includeHome) {
+        if (scenario.primaryBalanceLocked && scenario.manualCurrentBalance !== undefined) {
+            primaryBal = scenario.manualCurrentBalance;
+        } else {
+            // FIX: For Current Loans, we generally do NOT want to apply the extra payment settings
+            // to the historical calculation, because "Extra Payment" is typically a future strategy.
+            // If we apply it historically, it rewrites history and lowers the starting balance artificially.
+            // We pass an empty config for history so it calculates standard amortization until Today.
+            // The future projection loop will pick up the extra payments starting from now.
+            
+            const extraConfigHistory: ExtraPaymentConfig = {
+                // Intentionally empty to treat history as standard amortization
+                // unless we want to support 'historical corrections' in the future.
+            };
+
+            primaryBal = calculateCurrentBalance(
+                scenario.loanAmount, 
+                scenario.interestRate, 
+                scenario.loanTermYears, 
+                scenario.startDate,
+                extraConfigHistory
+            );
+        }
+    }
     
+    const startingPrimaryBal = primaryBal; // Store for snapshot
+
     // Additional Loans
-    const subLoans = (scenario.additionalLoans || []).map(l => ({
-        ...l,
-        currentBal: includeHome ? calculateCurrentBalance(l.balance, l.rate, l.years, l.startDate) : 0,
-        monthlyPI: includeHome ? calculateMonthlyPI(l.balance, l.rate, l.years) : 0
-    }));
+    const subLoans = (scenario.additionalLoans || []).map(l => {
+        // Sub-loans extra payment also treated as future strategy
+        return {
+            ...l,
+            currentBal: includeHome ? calculateCurrentBalance(l.balance, l.rate, l.years, l.startDate, {}) : 0,
+            monthlyPI: includeHome ? calculateMonthlyPI(l.balance, l.rate, l.years) : 0,
+            accumulatedInterest: 0,
+            accumulatedPrincipal: 0,
+            accumulatedExtra: 0 // New accumulator for sub loans
+        };
+    });
 
     let investmentBal = investCapital;
     
@@ -225,8 +332,9 @@ export const calculateLoan = (
     let totalHOAPaid = 0;
     let totalPMIPaid = 0;
     let totalCustomPaid = 0;
+    let totalRepairPaid = 0;
     let totalRentalIncome = 0;
-    let totalRentPaid = 0; // New
+    let totalRentPaid = 0; 
     let totalRentalTax = 0;
     let totalInvestmentTax = 0;
     let totalInvestmentContribution = 0;
@@ -234,17 +342,38 @@ export const calculateLoan = (
     let totalAppreciation = 0;
     let totalExtraPayments = 0;
 
+    // Per Loan Primary Accumulators
+    let primaryPrincipalPaid = 0;
+    let primaryExtraPaid = 0; // NEW: Track primary extra payments specifically
+    let primaryInterestPaid = 0;
+
     const schedule: AmortizationPoint[] = [];
     const subSchedules: Record<string, AmortizationPoint[]> = {};
     subLoans.forEach(l => subSchedules[l.id] = []);
     
     const annualData: AnnualDataPoint[] = [];
 
-    // Monthly Loop
+    // Calculate monthsElapsed for Primary Loan to align "m" (projection) with Loan Age
+    let monthsElapsed = 0;
+    if (scenario.startDate) {
+        const start = new Date(scenario.startDate);
+        const now = new Date();
+        monthsElapsed = (now.getFullYear() - start.getFullYear()) * 12;
+        monthsElapsed -= start.getMonth();
+        monthsElapsed += now.getMonth();
+        if (monthsElapsed < 0) monthsElapsed = 0;
+    }
+
+    // Monthly Loop (Projection)
     for (let m = 1; m <= horizonMonths; m++) {
         const yearIndex = Math.ceil(m / 12);
+        const loanAge = monthsElapsed + m; // Effective Age of loan at this projection month
         
-        // 1. Property Appreciation (Based on FMV, not Purchase Price)
+        const date = new Date();
+        date.setMonth(date.getMonth() + m);
+        const calendarMonth = date.getMonth(); // 0-11
+        
+        // 1. Property Appreciation
         const monthlyAppreciation = currentFMV * (appreciationRate / 100 / 12);
         currentFMV += monthlyAppreciation;
         totalAppreciation += monthlyAppreciation;
@@ -253,7 +382,7 @@ export const calculateLoan = (
         let monthPrincipal = 0;
         let monthInterest = 0;
         let monthExtra = 0;
-        let monthTotalPayment = 0; // P&I + Extra
+        let monthTotalPayment = 0; 
 
         // Primary
         if (primaryBal > 0) {
@@ -266,39 +395,60 @@ export const calculateLoan = (
             
             let principal = pmt - interest;
             
-            // Extra Payments
+            // Extra Payments (APPLIED HERE FOR FUTURE)
             let extra = 0;
-            // Monthly Extra
-            if (m > scenario.extraPaymentDelayMonths) {
-                if (scenario.monthlyExtraPaymentFrequency === 'annually') {
-                    if (m % 12 === 0) extra += scenario.monthlyExtraPayment;
+            
+            // Monthly Extra - Check against Loan Age
+            // FIX: Robust check for undefined delay
+            const delay = scenario.extraPaymentDelayMonths || 0;
+            if (loanAge > delay) {
+                const freq = scenario.monthlyExtraPaymentFrequency || 'monthly';
+                
+                if (freq === 'annually') {
+                    if (loanAge % 12 === 0) extra += scenario.monthlyExtraPayment;
                 } else {
-                    extra += scenario.monthlyExtraPayment;
+                    // Convert to monthly effective amount
+                    extra += convertToMonthlyContribution(scenario.monthlyExtraPayment, freq);
                 }
             }
-            // One Time
-            if (m === scenario.oneTimeExtraPaymentMonth) {
+            
+            // One Time - Check against Loan Age
+            // FIX: Robust check for undefined
+            const oneTimeMonth = scenario.oneTimeExtraPaymentMonth || 0;
+            if (loanAge === oneTimeMonth) {
                 extra += scenario.oneTimeExtraPayment;
             }
-            // Annual Lump Sum
-            if ((m - 1) % 12 === scenario.annualLumpSumMonth) {
+            
+            // Annual Lump Sum - Check against Calendar Month
+            const lumpMonth = scenario.annualLumpSumMonth || 0;
+            if (calendarMonth === lumpMonth) {
                 extra += scenario.annualLumpSumPayment;
             }
+            
             // Manual Override
             if (scenario.manualExtraPayments && scenario.manualExtraPayments[m] !== undefined) {
-                extra = scenario.manualExtraPayments[m];
+                const val = Number(scenario.manualExtraPayments[m]);
+                extra = isNaN(val) ? 0 : val;
             }
 
             if (extra > primaryBal - principal) extra = primaryBal - principal;
             
+            // Apply Extra to Principal
             principal += extra;
+            
+            // Deduct Total Principal from Balance
             primaryBal -= principal;
-            if (primaryBal < 0) primaryBal = 0; // safety
+            if (primaryBal < 0) primaryBal = 0; 
+
+            // Update Primary Accumulators
+            primaryPrincipalPaid += principal;
+            primaryExtraPaid += extra; // Track Extra
+            primaryInterestPaid += interest;
 
             monthPrincipal += principal;
             monthInterest += interest;
             monthExtra += extra;
-            monthTotalPayment += (interest + principal); // Includes extra
+            monthTotalPayment += (interest + principal); 
         }
 
         // Sub Loans
@@ -308,25 +458,42 @@ export const calculateLoan = (
                 const interest = l.currentBal * monthlyRate;
                 let pmt = l.monthlyPI;
                 if (pmt > l.currentBal + interest) pmt = l.currentBal + interest;
-                const principal = pmt - interest;
+                let principal = pmt - interest;
+
+                // Extra Payment Logic for Sub Loans
+                let extra = 0;
+                if (l.monthlyExtraPayment && l.monthlyExtraPayment > 0) {
+                     const freq = l.monthlyExtraPaymentFrequency || 'monthly';
+                     if (freq === 'annually') {
+                         if (m % 12 === 0) extra += l.monthlyExtraPayment;
+                     } else {
+                         extra += convertToMonthlyContribution(l.monthlyExtraPayment, freq);
+                     }
+                }
                 
+                if (extra > l.currentBal - principal) extra = l.currentBal - principal;
+                principal += extra;
+
                 l.currentBal -= principal;
                 if (l.currentBal < 0) l.currentBal = 0;
 
+                l.accumulatedInterest += interest;
+                l.accumulatedPrincipal += principal;
+                l.accumulatedExtra += extra; // Track Sub Extra
+
                 monthPrincipal += principal;
                 monthInterest += interest;
-                monthTotalPayment += pmt;
+                monthTotalPayment += (pmt + extra);
 
-                // Sub Schedule recording
                 subSchedules[l.id].push({
                     monthIndex: m,
-                    date: '', // filled later
+                    date: '', 
                     balance: l.currentBal,
                     interest,
                     principal,
-                    extraPayment: 0,
-                    totalPayment: pmt,
-                    totalInterest: 0, // accum later
+                    extraPayment: extra,
+                    totalPayment: pmt + extra,
+                    totalInterest: 0, 
                     totalTaxRefund: 0,
                     totalPaidToDate: 0,
                     equity: 0,
@@ -352,19 +519,19 @@ export const calculateLoan = (
         let ins = 0;
         let hoa = 0;
         let pmi = 0;
+        let repair = 0;
         
-        // Property Costs logic with Toggle
-        if (scenario.includePropertyCosts !== false && includeHome) { // Defaults to true, must have home
-            if (!scenario.isRentOnly && !scenario.isInvestmentOnly) {
-                // Property Tax usually based on Assessed Value (Purchase Price initially), 
-                // but strictly speaking assessments lag. We will use Purchase Price (homeValue) for tax base
-                // unless user specifically inputs a fixed amount.
-                // Note: User can toggle rate based vs fixed. 
-                propTax = scenario.propertyTax / 12; 
-                ins = (scenario.homeInsurance || 0) / 12;
-                hoa = (scenario.hoa || 0) / 12;
-                pmi = (scenario.pmi || 0) / 12; 
-            }
+        if (scenario.includePropertyCosts !== false && includeHome) { 
+             propTax = scenario.propertyTax / 12; 
+             ins = (scenario.homeInsurance || 0) / 12;
+             hoa = (scenario.hoa || 0) / 12;
+             pmi = (scenario.pmi || 0) / 12; 
+             
+             if (scenario.useRepairRate && scenario.repairRate !== undefined) {
+                 repair = (currentFMV * (scenario.repairRate / 100)) / 12;
+             } else {
+                 repair = (scenario.repair || 0) / 12;
+             }
         }
         
         let customExp = (scenario.customExpenses || []).reduce((s, e) => s + e.amount, 0);
@@ -374,8 +541,9 @@ export const calculateLoan = (
         totalHOAPaid += hoa;
         totalPMIPaid += pmi;
         totalCustomPaid += customExp;
+        totalRepairPaid += repair;
 
-        const propertyCosts = propTax + ins + hoa + pmi + customExp;
+        const propertyCosts = propTax + ins + hoa + pmi + customExp + repair;
 
         // 4. Rent (In or Out)
         let rentFlow = 0;
@@ -385,19 +553,16 @@ export const calculateLoan = (
             const flowType = scenario.rentFlowType || (scenario.isRentOnly ? 'outflow' : 'inflow');
 
             if (flowType === 'outflow') {
-                // Outflow Logic (Expense)
                 const currentRent = rentOutInput * Math.pow(1 + scenario.rentIncreasePerYear/100, (yearIndex-1));
                 rentFlow = -currentRent; 
                 totalRentPaid += currentRent;
             } else {
-                // Inflow Logic (Income)
                 const currentRent = rentInInput * Math.pow(1 + (scenario.rentIncreasePerYear || 0)/100, (yearIndex-1));
                 if (currentRent > 0) {
-                    rentFlow = currentRent; // Positive flow tracking
+                    rentFlow = currentRent; 
                     totalRentalIncome += currentRent;
                     if (scenario.rentalIncomeTaxEnabled) {
-                        // Deduct effective property costs for tax calculation
-                        const taxable = currentRent - (propTax + ins + hoa + monthInterest); 
+                        const taxable = currentRent - (propTax + ins + hoa + monthInterest + repair); 
                         if (taxable > 0) {
                             rentTax = taxable * (scenario.rentalIncomeTaxRate / 100);
                             totalRentalTax += rentTax;
@@ -408,26 +573,22 @@ export const calculateLoan = (
         }
 
         // 5. Investment
-        // Growth
         const monthlyInvRate = investRate / 100 / 12;
         const growth = investmentBal * monthlyInvRate;
         investmentBal += growth;
         
-        // Tax on growth (if annually? simplified monthly accrual)
         const invTax = growth * (investTaxRate / 100);
         totalInvestmentTax += invTax;
         investmentBal -= invTax;
 
-        // Contribution
         let contribution = monthlyInvestContribution;
         
-        // "Invest the difference" logic
-        if (scenario.isRentOnly && scenario.investMonthlySavings && baselineMonthlyPayment) {
+        if (scenario.includeInvestment !== false && scenario.isRentOnly && scenario.investMonthlySavings && baselineMonthlyPayment) {
             const rentCost = (scenario.includeRent !== false && (scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)))
                 ? Math.abs(rentFlow)
                 : 0;
                 
-            const outflow = rentCost + customExp; 
+            const outflow = rentCost + customExp + repair; 
             const savings = baselineMonthlyPayment - outflow;
             if (savings > 0) {
                 contribution += savings;
@@ -439,8 +600,7 @@ export const calculateLoan = (
 
         // 6. Tax Refund (Mortgage Interest Deduction)
         let refund = 0;
-        if (!scenario.isRentOnly && !scenario.isInvestmentOnly) {
-            // Deductible is Interest + Property Tax (if property costs enabled)
+        if (includeHome) {
             const deductible = monthInterest + propTax; 
             refund = deductible * (scenario.taxRefundRate / 100);
             totalTaxRefund += refund;
@@ -450,12 +610,9 @@ export const calculateLoan = (
         totalInterestPaid += monthInterest;
         totalExtraPayments += monthExtra;
 
-        // Record Point
-        const date = new Date();
-        date.setMonth(date.getMonth() + m);
-        
         const totalLoanBal = primaryBal + subLoans.reduce((s,l)=>s+l.currentBal,0);
-        
+        const totalPaidToDate = totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRepairPaid + totalRentalTax + totalRentPaid;
+
         schedule.push({
             monthIndex: m,
             date: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
@@ -463,36 +620,31 @@ export const calculateLoan = (
             interest: monthInterest,
             principal: monthPrincipal,
             extraPayment: monthExtra,
-            totalPayment: monthTotalPayment + propertyCosts + (scenario.includeRent !== false && (scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)) ? Math.abs(rentFlow) : 0), // Cash outflow
+            totalPayment: monthTotalPayment + propertyCosts + (scenario.includeRent !== false && (scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)) ? Math.abs(rentFlow) : 0),
             totalInterest: totalInterestPaid,
             totalTaxRefund: totalTaxRefund,
-            totalPaidToDate: totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalExtraPayments + totalRentPaid,
+            totalPaidToDate: totalPaidToDate,
             equity: currentFMV - totalLoanBal,
             accumulatedRentalIncome: totalRentalIncome,
             accumulatedRentalTax: totalRentalTax,
-            accumulatedPropertyCosts: totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid,
+            accumulatedPropertyCosts: totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRepairPaid,
             customExpenses: customExp,
             investmentBalance: investmentBal,
             investmentTax: totalInvestmentTax
         });
 
-        // Annual Data Point
         if (m % 12 === 0 || m === horizonMonths) {
             const closingCostsEffect = (scenario.enableSelling !== false && includeHome) ? (scenario.closingCosts || 0) : 0;
             const customClosingEffect = (scenario.enableSelling !== false && includeHome) ? (scenario.customClosingCosts?.reduce((s,c)=>s+c.amount,0)||0) : 0;
             const downPaymentEffect = includeHome ? (scenario.downPayment || 0) : 0;
 
-            const totalOutflow = totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRentalTax + totalInvestmentTax + totalInvestmentContribution + totalRentPaid + closingCostsEffect + customClosingEffect;
+            const totalOutflow = totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRepairPaid + totalRentalTax + totalInvestmentContribution + totalRentPaid + closingCostsEffect + customClosingEffect;
             const totalInflow = totalRentalIncome + totalTaxRefund; 
 
             const netWorth = (currentFMV - totalLoanBal) + investmentBal;
             
-            // Out of Pocket
-            const oop = totalOutflow - totalInflow; // Net Cash Spent
+            const oop = totalOutflow - totalInflow; 
             
-            // Net Cost (True Cost)
-            // Recoverable Equity = (FMV - SellingCosts - Loan)
-            // Note: Selling Costs based on current FMV
             const sellingCost = (scenario.enableSelling !== false && includeHome) ? (currentFMV * (scenario.sellingCostRate / 100)) : 0;
             const recoverableEquity = Math.max(0, currentFMV - sellingCost - totalLoanBal);
             const trueCost = oop - recoverableEquity - investmentBal;
@@ -506,10 +658,7 @@ export const calculateLoan = (
                 netWorth: netWorth,
                 netCost: trueCost,
                 totalGain: 0, 
-                // Net profit considers initial instant equity as wealth but doesn't cost anything.
-                // Profit = Net Worth - Total Invested (Down + Closing + Monthly Costs)
-                // Down Payment is based on PURCHASE Price.
-                netProfit: netWorth - (downPaymentEffect + closingCostsEffect + customClosingEffect + totalInvestmentContribution + (scenario.investmentCapital||0)),
+                netProfit: netWorth - oop,
                 outOfPocket: oop,
                 trueCost: trueCost,
                 cumulativeInflow: totalInflow + totalAppreciation + instantEquity + (investmentBal - totalInvestmentContribution),
@@ -518,29 +667,22 @@ export const calculateLoan = (
         }
     }
 
-    // Wrap up Summary
-    // One time fees
     const primaryLoanFees = (scenario.primaryLoanExpenses || []).reduce((sum, e) => sum + e.amount, 0);
     const additionalLoanFees = (scenario.additionalLoans || []).reduce((sum, l) => {
         return sum + (l.oneTimeExpenses || []).reduce((s, e) => s + e.amount, 0);
     }, 0);
     const totalLoanFees = primaryLoanFees + additionalLoanFees;
     
-    // Final Selling based on FMV
     const sellingCosts = (scenario.enableSelling !== false && includeHome) ? (currentFMV * (scenario.sellingCostRate / 100)) : 0;
     const closingCostsFinal = (scenario.enableSelling !== false && includeHome) ? (scenario.closingCosts || 0) : 0;
     const customClosingFinal = (scenario.enableSelling !== false && includeHome) ? (scenario.customClosingCosts?.reduce((s,c)=>s+c.amount,0)||0) : 0;
     const downPaymentFinal = includeHome ? (scenario.downPayment || 0) : 0;
 
-    // Capital Gains Tax
-    // Basis = Purchase Price + Improvements (Ignored here)
-    // Gain = Sale Price (FMV) - Selling Costs - Basis
     let capitalGainsTax = 0;
     let taxableCapitalGains = 0;
     let capitalGainsExclusion = 0;
 
-    if (scenario.enableSelling !== false && !scenario.isRentOnly && !scenario.isInvestmentOnly && includeHome) {
-        // Gain is based on Purchase Price vs Current FMV
+    if (scenario.enableSelling !== false && includeHome) {
         const gain = currentFMV - sellingCosts - scenario.homeValue; 
         
         if (gain > 0) {
@@ -556,7 +698,6 @@ export const calculateLoan = (
 
     const totalEndLoanBal = primaryBal + subLoans.reduce((s,l)=>s+l.currentBal,0);
 
-    // Profit
     const finalNetWorth = (currentFMV - totalEndLoanBal) + investmentBal;
     const liquidNetWorth = (Math.max(0, currentFMV - sellingCosts - capitalGainsTax - totalEndLoanBal)) + investmentBal;
     
@@ -567,42 +708,140 @@ export const calculateLoan = (
         totalLoanFees + 
         investCapital + 
         totalInvestmentContribution +
-        (totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRentalTax + totalExtraPayments + totalInvestmentTax + totalRentPaid - totalRentalIncome - totalTaxRefund); // Net Monthly Cash Flow sum
+        (totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRepairPaid + totalRentalTax + totalRentPaid - totalRentalIncome - totalTaxRefund); 
     
     const profit = liquidNetWorth - totalCashInvested;
     const netCost = totalCashInvested - liquidNetWorth;
 
-    // Monthly Averages for UI
-    const totalMonthlyPayment = schedule[0]?.totalPayment || 0; // First month snapshot
+    let lifetimeInterestSaved = 0;
+    let monthsSaved = 0;
+    let baselinePayoffDate = '';
     
-    const monthlyRentEffect = (scenario.includeRent !== false) 
-        ? ((scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)) 
-            ? 0 // It's an expense, so it adds to payment via TotalPayment, doesn't reduce PITI. 
-            : (rentInInput || 0)) // It's income, so it reduces PITI.
-        : 0;
-    
+    const hasExtras = scenario.monthlyExtraPayment > 0 || scenario.oneTimeExtraPayment > 0 || scenario.annualLumpSumPayment > 0 || (scenario.manualExtraPayments && Object.keys(scenario.manualExtraPayments).length > 0);
+
+    if (hasExtras && includeHome && startingPrimaryBal > 0) {
+        const maxMonths = 1200; 
+        const monthlyRate = scenario.interestRate / 100 / 12;
+        const fixedPmt = calculateMonthlyPI(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears);
+        
+        // 1. Baseline Lifetime (No Extra)
+        let baseLifeInt = 0;
+        let baseLifeMonths = 0;
+        let tempBal = startingPrimaryBal;
+        while(tempBal > 0.1 && baseLifeMonths < maxMonths) {
+            baseLifeMonths++;
+            const int = tempBal * monthlyRate;
+            let prin = fixedPmt - int;
+            if (prin > tempBal + int) prin = tempBal + int; 
+            if (prin < 0) prin = 0; 
+            
+            const principalPart = Math.min(prin, tempBal); 
+            
+            tempBal -= principalPart;
+            baseLifeInt += int;
+        }
+        
+        // 2. Actual Lifetime (With Extra)
+        let actLifeInt = 0;
+        let actLifeMonths = 0;
+        tempBal = startingPrimaryBal;
+        
+        const now = new Date(); 
+        
+        while(tempBal > 0.1 && actLifeMonths < maxMonths) {
+            actLifeMonths++;
+            const loanAge = monthsElapsed + actLifeMonths;
+            const simDate = new Date(now);
+            simDate.setMonth(simDate.getMonth() + actLifeMonths);
+            
+            const int = tempBal * monthlyRate;
+            let prin = fixedPmt - int; 
+            
+            let extra = 0;
+            // FIX: Robust check for undefined
+            const delay = scenario.extraPaymentDelayMonths || 0;
+            if (loanAge > delay) {
+                 const freq = scenario.monthlyExtraPaymentFrequency || 'monthly';
+                if (freq === 'annually') {
+                    if (loanAge % 12 === 0) extra += scenario.monthlyExtraPayment;
+                } else {
+                    extra += convertToMonthlyContribution(scenario.monthlyExtraPayment, freq);
+                }
+            }
+            
+            // FIX: Robust check for undefined
+            const oneTimeMonth = scenario.oneTimeExtraPaymentMonth || 0;
+            if (loanAge === oneTimeMonth) extra += scenario.oneTimeExtraPayment;
+            
+            const lumpMonth = scenario.annualLumpSumMonth || 0;
+            if (simDate.getMonth() === lumpMonth) extra += scenario.annualLumpSumPayment;
+            
+            if (scenario.manualExtraPayments && scenario.manualExtraPayments[actLifeMonths] !== undefined) {
+                const val = Number(scenario.manualExtraPayments[actLifeMonths]);
+                extra = isNaN(val) ? 0 : val;
+            }
+            
+            const totalPlannedPayment = fixedPmt + extra;
+            const maxNeeded = tempBal + int;
+            const actualPayment = Math.min(totalPlannedPayment, maxNeeded);
+            const actualPrincipal = Math.max(0, actualPayment - int);
+            
+            tempBal -= actualPrincipal;
+            actLifeInt += int;
+        }
+        
+        lifetimeInterestSaved = baseLifeInt - actLifeInt;
+        monthsSaved = baseLifeMonths - actLifeMonths;
+        
+        if (scenario.startDate) {
+            const d = new Date(scenario.startDate);
+            d.setMonth(d.getMonth() + monthsElapsed + baseLifeMonths);
+            baselinePayoffDate = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        }
+    }
+
     const primaryPI = includeHome ? calculateMonthlyPI(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears) : 0;
     const subLoansPI = subLoans.reduce((sum, l) => sum + l.monthlyPI, 0);
-    const monthlyPITI = primaryPI + subLoansPI + ((scenario.includePropertyCosts!==false && includeHome) ? (scenario.propertyTax / 12) + ((scenario.homeInsurance || 0) / 12) + ((scenario.hoa || 0) / 12) + ((scenario.pmi || 0) / 12) : 0);
     
+    let initialRepair = 0;
+    if (scenario.includePropertyCosts !== false && includeHome) {
+         if (scenario.useRepairRate && scenario.repairRate !== undefined) {
+             initialRepair = (startFMV * (scenario.repairRate / 100)) / 12;
+         } else {
+             initialRepair = (scenario.repair || 0) / 12;
+         }
+    }
+
+    const monthlyPITI = primaryPI + subLoansPI + ((scenario.includePropertyCosts!==false && includeHome) ? (scenario.propertyTax / 12) + ((scenario.homeInsurance || 0) / 12) + ((scenario.hoa || 0) / 12) + ((scenario.pmi || 0) / 12) : 0) + initialRepair;
+    
+    const monthlyCustomExpenses = (scenario.customExpenses || []).reduce((s, e) => s + e.amount, 0);
+    const totalMonthlyPayment = monthlyPITI + monthlyCustomExpenses;
+
+    const monthlyRentEffect = (scenario.includeRent !== false) 
+        ? ((scenario.rentFlowType === 'outflow' || (scenario.rentFlowType === undefined && scenario.isRentOnly)) 
+            ? 0 
+            : (rentInInput || 0)) 
+        : 0;
+
     const netMonthlyPayment = monthlyPITI - monthlyRentEffect;
 
-    // Loan Breakdown for chart
     const loanBreakdown: LoanBreakdown[] = [
         {
             id: 'primary',
             name: 'Primary Loan',
-            principalPaid: totalPrincipalPaid,
-            interestPaid: totalInterestPaid,
-            totalPaid: totalPrincipalPaid + totalInterestPaid + totalExtraPayments,
+            principalPaid: primaryPrincipalPaid,
+            extraPrincipalPaid: primaryExtraPaid,
+            interestPaid: primaryInterestPaid,
+            totalPaid: primaryPrincipalPaid + primaryInterestPaid, 
             remainingBalance: primaryBal
         },
         ...subLoans.map(l => ({
             id: l.id,
             name: l.name,
-            principalPaid: (l.balance - l.currentBal), 
-            interestPaid: 0, 
-            totalPaid: 0,
+            principalPaid: l.accumulatedPrincipal, 
+            extraPrincipalPaid: l.accumulatedExtra,
+            interestPaid: l.accumulatedInterest, 
+            totalPaid: l.accumulatedPrincipal + l.accumulatedInterest,
             remainingBalance: l.currentBal
         }))
     ];
@@ -610,16 +849,17 @@ export const calculateLoan = (
     return {
         id: scenario.id,
         monthlyPrincipalAndInterest: includeHome ? calculateMonthlyPI(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears) : 0,
-        monthlyFirstPI: 0, // unused
+        monthlyFirstPI: 0, 
         monthlyTax: (scenario.includePropertyCosts!==false && includeHome) ? scenario.propertyTax / 12 : 0,
         monthlyInsurance: (scenario.includePropertyCosts!==false && includeHome) ? (scenario.homeInsurance || 0) / 12 : 0,
         monthlyHOA: (scenario.includePropertyCosts!==false && includeHome) ? (scenario.hoa || 0) / 12 : 0,
         monthlyPMI: (scenario.includePropertyCosts!==false && includeHome) ? (scenario.pmi || 0) / 12 : 0,
-        monthlyCustomExpenses: (scenario.customExpenses || []).reduce((s, e) => s + e.amount, 0),
-        totalMonthlyPayment,
+        monthlyCustomExpenses,
+        monthlyRepair: initialRepair,
+        totalMonthlyPayment, 
         netMonthlyPayment,
         
-        totalPaid: totalPrincipalPaid + totalInterestPaid + totalExtraPayments + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRentalTax + totalInvestmentTax + totalRentPaid,
+        totalPaid: totalPrincipalPaid + totalInterestPaid + totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalCustomPaid + totalRepairPaid + totalRentalTax + totalRentPaid,
         totalRentPaid,
 
         totalInterest: totalInterestPaid,
@@ -631,13 +871,13 @@ export const calculateLoan = (
         totalAppreciation,
         accumulatedRentalIncome: totalRentalIncome,
         totalRentalTax,
-        totalPropertyCosts: totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid,
+        totalPropertyCosts: totalTaxPaid + totalInsurancePaid + totalHOAPaid + totalPMIPaid + totalRepairPaid,
         totalCustomExpenses: totalCustomPaid,
         totalLoanFees,
 
         futureHomeValue: currentFMV,
         remainingBalance: totalEndLoanBal,
-        startingBalance: includeHome ? calculateCurrentBalance(scenario.loanAmount, scenario.interestRate, scenario.loanTermYears, scenario.startDate) : 0,
+        startingBalance: startingPrimaryBal,
         equity: currentFMV - totalEndLoanBal,
         netWorth: finalNetWorth,
         investmentPortfolio: investmentBal,
@@ -663,14 +903,14 @@ export const calculateLoan = (
         
         totalInvestedAmount: totalCashInvested,
         initialCapitalBase: investCapital,
-        effectiveAnnualReturn: (profit / totalCashInvested) * 100 / (horizonMonths / 12), // simple annualized ROI
+        effectiveAnnualReturn: (profit / totalCashInvested) * 100 / (horizonMonths / 12), 
 
-        lifetimeInterestSaved: 0, 
-        monthsSaved: 0,
+        lifetimeInterestSaved: lifetimeInterestSaved, 
+        monthsSaved: monthsSaved,
         interestSavedAtHorizon: 0,
         
         baselineTotalInterest: 0,
-        baselinePayoffDate: '',
+        baselinePayoffDate: baselinePayoffDate,
         baselineTotalPaid: 0,
         
         loanBreakdown
